@@ -56,13 +56,9 @@ docker-compose.override.yml
 Otros/
 Docs PRQA Sustentacion/
 
-# Archivos de prueba locales (raíz)
+# Archivos de salida de prueba locales (raíz)
 test_*.xlsx
 download_test.xlsx
-
-# Archivos de prueba dentro de backend
-backend/app/test_generator.py
-backend/app/DTR029C-EOPA.xlsx
 
 # Knowledge base local (datos que no van al repo)
 backend/app/knowledge_base/
