@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Variables de entorno
+.env
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# ChromaDB (volumen Docker)
+chroma_db/
+db/
+
+# Datos de Ollama
+.ollama/
+
+# Archivos del sistema
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# Exportaciones temporales
+*.xlsx.tmp
+
+# Carpetas personales / documentación privada
+Otros/
+Docs PRQA Sustentacion/
+
+# Archivos de prueba locales (raíz)
+test_*.xlsx
+download_test.xlsx
+
+# Archivos de prueba dentro de backend
+backend/app/test_generator.py
+backend/app/DTR029C-EOPA.xlsx
+
+# Knowledge base local (datos que no van al repo)
+backend/app/knowledge_base/
+knowledge_base/

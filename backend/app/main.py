@@ -1,0 +1,954 @@
+"""
+PRQA Backend — main.py
+API y frontend del asistente de QA con IA Local
+Ciel Ingeniería S.A.S — Prácticas Profesionales 2026
+
+Este servicio expone la API REST en /api/* y sirve
+el frontend estático en la raíz (/).
+"""
+
+import os
+import json
+import uuid
+import asyncio
+from pathlib import Path
+from typing import Optional, List
+from datetime import datetime, timezone, timedelta
+
+# Zona horaria Colombia (UTC-5)
+TZ_COLOMBIA = timezone(timedelta(hours=-5))
+
+def now_co():
+    """Retorna la hora actual en Colombia (UTC-5)."""
+    return datetime.now(TZ_COLOMBIA)
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from pydantic import BaseModel
+import aiofiles
+
+from database import engine, Base, SessionLocal
+from models import TestCase, TestExecution, Document
+from rag_pipeline import RAGPipeline
+from test_generator import TestCaseGenerator
+
+# ── Inicialización ──────────────────────────────────────────────
+app = FastAPI(
+    title="PRQA — Asistente QA con IA Local",
+    description="Asistente de calidad de software potenciado por IA local para Ciel Ingeniería",
+    version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Crear tablas en la base de datos
+Base.metadata.create_all(bind=engine)
+
+# Pipelines globales (se inicializan al arrancar)
+rag: Optional[RAGPipeline] = None
+generator: Optional[TestCaseGenerator] = None
+
+KNOWLEDGE_BASE_PATH = Path(os.getenv("KNOWLEDGE_BASE_PATH", "/app/knowledge_base"))
+KNOWLEDGE_BASE_PATH.mkdir(parents=True, exist_ok=True)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicializa el pipeline RAG y el generador de casos de prueba."""
+    global rag, generator
+    print("Iniciando PRQA (API + Frontend)...")
+    
+    # Migración automática SQLite para agregar project_name si no existe y rellenar nulos
+    try:
+        from sqlalchemy import text
+        db = SessionLocal()
+        try:
+            db.execute(text("ALTER TABLE documents ADD COLUMN project_name VARCHAR DEFAULT 'Proyectos'"))
+            db.commit()
+        except Exception:
+            pass
+        db.execute(text("UPDATE documents SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
+        db.execute(text("UPDATE test_cases SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
+        db.commit()
+        print("Migraciones de project_name a 'Proyectos' completadas exitosamente en SQLite.")
+        
+        # Migrar archivos físicos al subdirectorio del proyecto "Proyectos"
+        for cat in ["requirements", "mtr", "templates"]:
+            old_dir = KNOWLEDGE_BASE_PATH / cat
+            new_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / cat
+            if old_dir.exists() and old_dir.is_dir():
+                new_dir.mkdir(parents=True, exist_ok=True)
+                for item in old_dir.iterdir():
+                    if item.is_file():
+                        dest = new_dir / item.name
+                        if not dest.exists():
+                            import shutil
+                            shutil.move(str(item), str(dest))
+                            print(f"Movido archivo físico {item.name} a {dest}")
+                        
+                        # Actualizar en la base de datos el path del archivo físico
+                        doc = db.query(Document).filter(Document.filename == item.name, Document.category == cat).first()
+                        if doc:
+                            doc.file_path = str(dest)
+                            db.commit()
+                            print(f"Actualizado path de {item.name} en SQLite a {dest}")
+        db.close()
+    except Exception as e:
+        print(f"Error en migración SQLite y archivos: {e}")
+
+    try:
+        rag = RAGPipeline()
+        generator = TestCaseGenerator(rag)
+        print("Pipeline RAG inicializado correctamente.")
+    except Exception as e:
+        print(f"⚠️  Error al inicializar pipeline: {e}")
+        print(f"Modo degradado: {e}. Verifica que Ollama este corriendo.")
+
+
+# ── Servir Frontend estático ─────────────────────────────────
+STATIC_PATH = Path(os.getenv("STATIC_PATH", "/app/static"))
+
+if STATIC_PATH.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_PATH)), name="static")
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def root():
+    index_file = STATIC_PATH / "index.html"
+    if index_file.exists():
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+        return FileResponse(str(index_file), headers=headers)
+    return HTMLResponse("<h1>PRQA API corriendo. Coloca el frontend en /app/static/</h1>")
+
+
+
+
+# ── Health Check ────────────────────────────────────────────────
+@app.get("/api/health")
+async def health():
+    status = {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "rag_ready": rag is not None and rag.is_ready(),
+        "ollama_host": os.getenv("OLLAMA_HOST", "http://ollama:11434"),
+        "model": os.getenv("LLM_MODEL", "llama3.1:8b"),
+    }
+    return status
+
+
+# ══════════════════════════════════════════════════════════════════
+# MÓDULO 1 — CHAT / ASISTENTE
+# ══════════════════════════════════════════════════════════════════
+
+class ChatRequest(BaseModel):
+    message: str
+    use_knowledge_base: bool = True
+    session_id: Optional[str] = None
+    project_name: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    response: str
+    sources: List[str] = []
+    session_id: str
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    """Envía un mensaje al asistente de IA con contexto de la base de conocimiento."""
+    if not rag:
+        raise HTTPException(503, "Pipeline RAG no disponible. Verifica que Ollama esté corriendo.")
+
+    session_id = req.session_id or str(uuid.uuid4())
+
+    try:
+        response, sources = await rag.query(
+            question=req.message,
+            use_knowledge_base=req.use_knowledge_base,
+            project_name=req.project_name
+        )
+        return ChatResponse(
+            response=response,
+            sources=sources,
+            session_id=session_id
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Error al procesar la consulta: {str(e)}")
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """Streaming del chat para respuestas en tiempo real."""
+    if not rag:
+        raise HTTPException(503, "Pipeline RAG no disponible.")
+
+    async def generate():
+        try:
+            async for chunk in rag.stream_query(req.message, req.use_knowledge_base, project_name=req.project_name):
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.get("/api/projects")
+async def list_projects():
+    """Obtiene la lista única de todos los nombres de proyectos registrados."""
+    db = SessionLocal()
+    try:
+        doc_projects = db.query(Document.project_name).distinct().all()
+        tc_projects = db.query(TestCase.project_name).distinct().all()
+        
+        projects = set()
+        projects.add("General")  # Siempre incluir el proyecto por defecto
+        
+        for (p,) in doc_projects:
+            if p:
+                projects.add(p)
+        for (p,) in tc_projects:
+            if p:
+                projects.add(p)
+                
+        return sorted(list(projects))
+    finally:
+        db.close()
+
+
+class RenameProjectRequest(BaseModel):
+    new_name: str
+
+@app.put("/api/projects/{project_name}")
+async def rename_project(project_name: str, req: RenameProjectRequest):
+    """Renombra un proyecto: actualiza project_name en documentos y casos de prueba."""
+    new_name = req.new_name.strip()
+    if not new_name:
+        raise HTTPException(400, "El nuevo nombre no puede estar vacío.")
+    if project_name == new_name:
+        return {"renamed": False, "message": "El nombre es igual."}
+    if project_name == "General":
+        raise HTTPException(400, "No puedes renombrar el proyecto predeterminado.")
+
+    db = SessionLocal()
+    try:
+        db.query(Document).filter(Document.project_name == project_name).update(
+            {"project_name": new_name}, synchronize_session=False
+        )
+        db.query(TestCase).filter(TestCase.project_name == project_name).update(
+            {"project_name": new_name}, synchronize_session=False
+        )
+        db.commit()
+
+        # Renombrar carpeta de Excels en disco si existe
+        old_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name
+        new_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / new_name
+        if old_dir.exists() and not new_dir.exists():
+            old_dir.rename(new_dir)
+
+        return {"renamed": True, "old_name": project_name, "new_name": new_name}
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(500, f"Error al renombrar: {ex}")
+    finally:
+        db.close()
+
+
+@app.delete("/api/projects/{project_name}")
+async def delete_project(project_name: str):
+    """Elimina un proyecto completo: test cases, documentos (ChromaDB + archivos) y Excels generados."""
+    if project_name in ('General',):
+        raise HTTPException(400, "No puedes eliminar el proyecto predeterminado.")
+
+    db = SessionLocal()
+    deleted_summary = {"test_cases": 0, "documents": 0, "excels": 0}
+    try:
+        # 1. Borrar todos los casos de prueba del proyecto
+        tc_deleted = db.query(TestCase).filter(TestCase.project_name == project_name).delete(synchronize_session=False)
+        deleted_summary["test_cases"] = tc_deleted
+
+        # 2. Borrar todos los documentos del proyecto (ChromaDB + archivo físico)
+        docs = db.query(Document).filter(Document.project_name == project_name).all()
+        for doc in docs:
+            try:
+                if rag:
+                    await rag.remove_document(doc.file_path)
+            except Exception:
+                pass
+            try:
+                fp = Path(doc.file_path)
+                if fp.exists():
+                    fp.unlink()
+            except Exception:
+                pass
+            db.delete(doc)
+            deleted_summary["documents"] += 1
+
+        # 3. Borrar Excels generados en disco
+        export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name / "generados"
+        if export_dir.exists():
+            for f in export_dir.glob("*.xlsx"):
+                try:
+                    f.unlink()
+                    deleted_summary["excels"] += 1
+                except Exception:
+                    pass
+
+        db.commit()
+        return {"deleted": True, "project": project_name, **deleted_summary}
+    except HTTPException:
+        raise
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(500, f"Error eliminando proyecto: {ex}")
+    finally:
+        db.close()
+
+
+# ══════════════════════════════════════════════════════════════════
+# MÓDULO 2 — GESTIÓN DE DOCUMENTOS (Knowledge Base)
+# ══════════════════════════════════════════════════════════════════
+
+@app.get("/api/documents")
+async def list_documents(project: Optional[str] = None):
+    """Lista todos los documentos indexados en la base de conocimiento."""
+    db = SessionLocal()
+    try:
+        query = db.query(Document)
+        if project:
+            query = query.filter(Document.project_name == project)
+        docs = query.order_by(Document.uploaded_at.desc()).all()
+        return [
+            {
+                "id": d.id,
+                "filename": d.filename,
+                "category": d.category,
+                "project_name": d.project_name,
+                "size_kb": round(d.size_bytes / 1024, 1),
+                "chunks": d.chunks_count,
+                "uploaded_at": d.uploaded_at.isoformat(),
+            }
+            for d in docs
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/api/documents/{doc_id}/content")
+async def get_document_content(doc_id: str):
+    """Obtiene el texto completo indexado para un documento específico."""
+    if not rag:
+        raise HTTPException(503, "Pipeline RAG no disponible.")
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            raise HTTPException(404, "Documento no encontrado.")
+        
+        text = rag.get_document_text(doc.filename)
+        return {"filename": doc.filename, "content": text}
+    finally:
+        db.close()
+
+
+@app.post("/api/documents/upload")
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    category: str = "requirements",
+    project: str = "Proyectos"
+):
+    """Sube e indexa un documento en la base de conocimiento."""
+    if not rag:
+        raise HTTPException(503, "Pipeline RAG no disponible.")
+
+    allowed_types = {".pdf", ".docx", ".txt", ".xlsx", ".xls", ".md"}
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in allowed_types:
+        raise HTTPException(400, f"Tipo de archivo no soportado: {suffix}. Usa: {allowed_types}")
+
+    # Sanitizar nombre del proyecto para su uso como nombre de carpeta física
+    safe_project = "".join([c for c in project if c.isalnum() or c in (" ", "_", "-")]).strip()
+    if not safe_project:
+        safe_project = "Proyectos"
+
+    # Guardar archivo bajo el directorio del proyecto
+    project_path = KNOWLEDGE_BASE_PATH / safe_project / category
+    project_path.mkdir(parents=True, exist_ok=True)
+    file_path = project_path / file.filename
+
+    content = await file.read()
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(content)
+
+    # Indexar en background
+    doc_id = str(uuid.uuid4())
+    background_tasks.add_task(
+        index_document_task,
+        doc_id=doc_id,
+        file_path=file_path,
+        filename=file.filename,
+        category=category,
+        project_name=project,
+        size_bytes=len(content)
+    )
+
+    return {
+        "message": f"Documento '{file.filename}' recibido. Indexando en segundo plano...",
+        "doc_id": doc_id,
+        "status": "processing"
+    }
+
+
+async def index_document_task(doc_id: str, file_path: Path, filename: str, category: str, project_name: str, size_bytes: int):
+    """Tarea de background: indexa el documento en ChromaDB y registra en SQLite."""
+    db = SessionLocal()
+    try:
+        # Buscar y eliminar duplicados previos de este mismo archivo en este proyecto
+        existing_doc = db.query(Document).filter(
+            Document.filename == filename,
+            Document.project_name == project_name
+        ).first()
+        if existing_doc:
+            try:
+                if rag:
+                    await rag.remove_document(existing_doc.file_path)
+            except Exception as ex:
+                print(f"Aviso: No se pudo limpiar Chroma para duplicado {filename}: {ex}")
+            db.delete(existing_doc)
+            db.commit()
+
+        chunks_count = await rag.index_document(str(file_path), project_name=project_name)
+
+        doc = Document(
+            id=doc_id,
+            filename=filename,
+            file_path=str(file_path),
+            category=category,
+            project_name=project_name,
+            size_bytes=size_bytes,
+            chunks_count=chunks_count,
+        )
+        db.add(doc)
+        db.commit()
+        print(f"✅ Documento indexado: {filename} ({chunks_count} fragmentos)")
+    except Exception as e:
+        print(f"❌ Error indexando {filename}: {e}")
+    finally:
+        db.close()
+
+
+
+@app.delete("/api/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    """Elimina un documento de la base de conocimiento."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            raise HTTPException(404, "Documento no encontrado.")
+
+        # Eliminar de ChromaDB
+        if rag:
+            await rag.remove_document(doc.file_path)
+
+        # Eliminar archivo físico
+        file_path = Path(doc.file_path)
+        if file_path.exists():
+            file_path.unlink()
+
+        db.delete(doc)
+        db.commit()
+        return {"message": f"Documento '{doc.filename}' eliminado."}
+    finally:
+        db.close()
+
+
+class EditDocumentRequest(BaseModel):
+    filename: str
+    category: str
+
+
+@app.put("/api/documents/{doc_id}")
+async def edit_document(doc_id: str, req: EditDocumentRequest):
+    """Edita el nombre o categoría de un documento indexado."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            raise HTTPException(404, "Documento no encontrado.")
+
+        old_filename = doc.filename
+        doc.filename = req.filename
+        doc.category = req.category
+        db.commit()
+
+        # Actualizar metadatas en ChromaDB si está disponible
+        if rag and old_filename != req.filename:
+            try:
+                existing = rag.collection.get(where={"source": old_filename})
+                if existing["ids"]:
+                    new_metadatas = []
+                    for m in existing["metadatas"]:
+                        m["source"] = req.filename
+                        new_metadatas.append(m)
+                    rag.collection.update(ids=existing["ids"], metadatas=new_metadatas)
+            except Exception as e:
+                print(f"Error actualizando ChromaDB: {e}")
+
+        return {"status": "ok", "message": "Documento actualizado correctamente."}
+    finally:
+        db.close()
+
+
+# ══════════════════════════════════════════════════════════════════
+# MÓDULO 3 — GENERACIÓN DE CASOS DE PRUEBA
+# ══════════════════════════════════════════════════════════════════
+
+class GenerateTestCasesRequest(BaseModel):
+    requirement_text: str
+    project_name: str = "Proyecto"
+    module: str = "General"
+    test_types: List[str] = ["FUNCIONALES", "NO FUNCIONALES"]
+    num_cases: int = 10
+
+
+@app.post("/api/test-cases/generate")
+async def generate_test_cases(req: GenerateTestCasesRequest):
+    """Genera casos de prueba automáticamente a partir de un requerimiento."""
+    if not generator:
+        raise HTTPException(503, "Generador no disponible.")
+
+    try:
+        test_cases = await generator.generate(
+            requirement_text=req.requirement_text,
+            project_name=req.project_name,
+            module=req.module,
+            test_types=req.test_types,
+            num_cases=req.num_cases,
+        )
+
+        if not test_cases or len(test_cases) == 0:
+            raise HTTPException(500, "El modelo local de IA no retornó casos de prueba válidos. Por favor presiona 'Generar' nuevamente.")
+
+        # Guardar en base de datos
+        db = SessionLocal()
+        saved_db_cases = []
+        try:
+            saved_cases = []
+            for tc in test_cases:
+                db_case = TestCase(
+                    id=str(uuid.uuid4()),
+                    case_id=tc.get("case_id") or tc.get("id", f"PRQA-{i+1:03d}"),
+                    project_name=req.project_name,
+                    module=req.module,
+                    title=tc["title"],
+                    test_type=tc["test_type"],
+                    technique=tc["technique"],
+                    preconditions=tc.get("preconditions", ""),
+                    steps=json.dumps(tc.get("steps", []), ensure_ascii=False),
+                    expected_result=tc.get("expected_result", ""),
+                    severity=tc.get("severity", "Tolerable"),
+                    category=tc.get("category", ""),
+                    acceptance_criteria=tc.get("acceptance_criteria", ""),
+                    status="Pendiente",
+                )
+                db.add(db_case)
+                saved_db_cases.append(db_case)
+                saved_cases.append({**tc, "db_id": db_case.id})
+
+            db.commit()
+            
+            # Generar y guardar el Excel permanente correspondiente a esta generación
+            from excel_exporter import export_to_eopa_excel
+            export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / req.project_name / "generados"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = now_co().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"Casos_{req.module.replace(' ', '_')}_{timestamp}.xlsx"
+            filepath = export_dir / filename
+            
+            export_to_eopa_excel(saved_db_cases, str(filepath), req.project_name)
+
+            return {
+                "test_cases": saved_cases,
+                "total": len(saved_cases),
+                "excel_filename": filename,
+                "excel_path": f"/api/test-cases/exports/download?project_name={req.project_name}&filename={filename}"
+            }
+        finally:
+            db.close()
+
+    except Exception as e:
+        raise HTTPException(500, f"Error generando casos de prueba: {str(e)}")
+
+
+@app.get("/api/test-cases/exports")
+async def list_generated_excels(project_name: str):
+    """Lista todos los archivos Excel EOPA generados para el proyecto."""
+    export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name / "generados"
+    if not export_dir.exists():
+        return []
+    
+    files = []
+    for f in export_dir.glob("*.xlsx"):
+        if f.is_file():
+            stat = f.stat()
+            # Módulo extraído del nombre: Casos_ModuleName_YYYY-MM-DD_HH-MM-SS.xlsx
+            parts = f.stem.split("_")
+            module_str = "General"
+            if len(parts) >= 2 and parts[1]:
+                module_str = parts[1].replace("-", " ")
+
+            # Fecha limpia y profesional en formato colombiano (DD/MM/YYYY - hh:mm AM/PM)
+            mtime_dt = datetime.fromtimestamp(stat.st_mtime, tz=TZ_COLOMBIA)
+            clean_date = mtime_dt.strftime("%d/%m/%Y - %I:%M %p")
+
+            files.append({
+                "filename": f.name,
+                "module": module_str,
+                "created_at": clean_date,
+                "mtime": stat.st_mtime,
+                "size_kb": round(stat.st_size / 1024, 1),
+                "download_url": f"/api/test-cases/exports/download?project_name={project_name}&filename={f.name}"
+            })
+    # Ordenar por fecha de modificación más reciente primero
+    files.sort(key=lambda x: x["mtime"], reverse=True)
+    return files
+
+
+
+@app.get("/api/test-cases/exports/download")
+async def download_generated_excel(project_name: str, filename: str):
+    """Descarga un archivo Excel EOPA generado del proyecto, regenerándolo al vuelo para corregir corrupciones previas."""
+    export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name / "generados"
+    file_path = export_dir / filename
+    
+    # ── Regeneración dinámica al vuelo ────────────────────────────
+    # Intentar obtener el nombre del módulo a partir del nombre del archivo:
+    # Ejemplo: Casos_ModuleName_YYYY-MM-DD_HH-MM-SS.xlsx
+    module_name = "General"
+    parts = filename.replace(".xlsx", "").split("_")
+    if len(parts) >= 2:
+        module_name = parts[1].replace("-", " ")
+        
+    db = SessionLocal()
+    try:
+        query = db.query(TestCase).filter(
+            TestCase.project_name == project_name,
+            TestCase.module == module_name
+        )
+        cases = query.all()
+        
+        if cases:
+            # Si hay casos guardados para este módulo, reconstruimos el Excel con la nueva plantilla limpia
+            from excel_exporter import export_to_eopa_excel
+            export_dir.mkdir(parents=True, exist_ok=True)
+            export_to_eopa_excel(cases, str(file_path), project_name)
+    except Exception as ex:
+        print(f"Aviso al regenerar Excel en descarga: {ex}")
+    finally:
+        db.close()
+        
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "El archivo Excel solicitado no existe y no pudo ser regenerado.")
+    
+    return FileResponse(
+        str(file_path),
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
+
+@app.delete("/api/test-cases/exports/delete")
+async def delete_generated_excel(project_name: str, filename: str):
+    """Elimina un archivo Excel generado del historial del proyecto
+    y borra los casos de prueba correspondientes de la base de datos."""
+    safe_name = Path(filename).name
+    export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name / "generados"
+    file_path = export_dir / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "Archivo no encontrado.")
+
+    try:
+        # 1. Borrar el archivo físico
+        file_path.unlink()
+
+        # 2. Extraer el módulo del nombre para borrar los casos de BD
+        # Formato: Casos_<Modulo>_<YYYY-MM-DD>_<HH-MM>_<SS>.xlsx
+        stem = safe_name.replace(".xlsx", "")
+        deleted_db = 0
+        try:
+            parts = stem.split("_")
+            if len(parts) >= 4 and parts[0] == "Casos":
+                # El timestamp ocupa las últimas 2 partes (YYYY-MM-DD y HH-MM-SS)
+                module_parts = parts[1:-2]
+                module_name_underscored = "_".join(module_parts)
+                module_name_spaced = " ".join(module_parts)
+
+                db = SessionLocal()
+                try:
+                    # Intento 1: coincidencia exacta con guiones bajos
+                    result = db.query(TestCase).filter(
+                        TestCase.project_name == project_name,
+                        TestCase.module == module_name_underscored
+                    ).delete(synchronize_session=False)
+                    db.commit()
+                    deleted_db += result
+
+                    # Intento 2: coincidencia con espacios
+                    if deleted_db == 0:
+                        result2 = db.query(TestCase).filter(
+                            TestCase.project_name == project_name,
+                            TestCase.module == module_name_spaced
+                        ).delete(synchronize_session=False)
+                        db.commit()
+                        deleted_db += result2
+
+                    # Intento 3: coincidencia case-insensitive con LIKE
+                    if deleted_db == 0:
+                        from sqlalchemy import func
+                        result3 = db.query(TestCase).filter(
+                            TestCase.project_name == project_name,
+                            func.lower(func.replace(TestCase.module, ' ', '_')) == module_name_underscored.lower()
+                        ).delete(synchronize_session=False)
+                        db.commit()
+                        deleted_db += result3
+                finally:
+                    db.close()
+        except Exception as db_err:
+            print(f"[WARN] No se pudieron eliminar casos de BD: {db_err}")
+
+        return {
+            "deleted": True,
+            "filename": safe_name,
+            "db_cases_deleted": deleted_db
+        }
+    except Exception as ex:
+        raise HTTPException(500, f"No se pudo eliminar el archivo: {ex}")
+
+
+
+
+@app.get("/api/test-cases")
+async def list_test_cases(project_name: Optional[str] = None, status: Optional[str] = None):
+
+    """Lista todos los casos de prueba almacenados."""
+    db = SessionLocal()
+    try:
+        query = db.query(TestCase)
+        if project_name:
+            query = query.filter(TestCase.project_name == project_name)
+        if status:
+            query = query.filter(TestCase.status == status)
+
+        cases = query.order_by(TestCase.created_at.desc()).all()
+        return [
+            {
+                "db_id": c.id,
+                "case_id": c.case_id,
+                "project_name": c.project_name,
+                "module": c.module,
+                "title": c.title,
+                "test_type": c.test_type,
+                "technique": c.technique,
+                "preconditions": c.preconditions,
+                "steps": json.loads(c.steps) if c.steps else [],
+                "expected_result": c.expected_result,
+                "severity": c.severity,
+                "category": c.category,
+                "acceptance_criteria": c.acceptance_criteria,
+                "status": c.status,
+                "result": c.result,
+                "notes": c.notes,
+                "created_at": c.created_at.isoformat() + "Z",
+                "executed_at": c.executed_at.isoformat() if c.executed_at else None,
+            }
+            for c in cases
+        ]
+    finally:
+        db.close()
+
+
+@app.delete("/api/test-cases/all")
+async def delete_all_test_cases(project_name: str):
+    """Elimina todos los casos de prueba de un proyecto (para sincronizar la vista de ejecución)."""
+    db = SessionLocal()
+    try:
+        deleted = db.query(TestCase).filter(
+            TestCase.project_name == project_name
+        ).delete(synchronize_session=False)
+        db.commit()
+        return {"deleted": deleted, "project_name": project_name}
+    finally:
+        db.close()
+
+
+@app.get("/api/test-cases/export/excel")
+async def export_test_cases_excel(project_name: Optional[str] = None):
+    """Exporta los casos de prueba en formato Excel (plantilla EOPA)."""
+
+    from excel_exporter import export_to_eopa_excel
+    import tempfile
+
+    db = SessionLocal()
+    try:
+        query = db.query(TestCase)
+        if project_name:
+            query = query.filter(TestCase.project_name == project_name)
+        cases = query.all()
+
+        if not cases:
+            raise HTTPException(404, "No hay casos de prueba para exportar.")
+
+        # Generar Excel temporal
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        export_to_eopa_excel(cases, tmp_path, project_name or "PRQA")
+
+        return FileResponse(
+            tmp_path,
+            filename=f"CasosPrueba_{project_name or 'PRQA'}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    finally:
+        db.close()
+
+
+# ══════════════════════════════════════════════════════════════════
+# MÓDULO 4 — REGISTRO DE EJECUCIÓN DE PRUEBAS
+# ══════════════════════════════════════════════════════════════════
+
+class ExecutionRequest(BaseModel):
+    test_case_id: str
+    result: str  # "CUMPLE" | "NO CUMPLE"
+    notes: Optional[str] = None
+    severity: Optional[str] = None
+    incident_type: Optional[str] = None
+    incident_state: Optional[str] = "Abierto"
+    tester_name: Optional[str] = None
+
+
+@app.post("/api/execution/register")
+async def register_execution(req: ExecutionRequest):
+    """Registra el resultado de ejecución de un caso de prueba."""
+    if req.result not in ["CUMPLE", "NO CUMPLE"]:
+        raise HTTPException(400, "El resultado debe ser 'CUMPLE' o 'NO CUMPLE'.")
+
+    db = SessionLocal()
+    try:
+        test_case = db.query(TestCase).filter(TestCase.id == req.test_case_id).first()
+        if not test_case:
+            raise HTTPException(404, "Caso de prueba no encontrado.")
+
+        # Actualizar caso de prueba con resultado e info de incidencia
+        test_case.result = req.result
+        test_case.status = "Ejecutado"
+        test_case.notes = req.notes
+        test_case.executed_at = datetime.now()
+        if req.result == "NO CUMPLE":
+            test_case.incident_type = req.incident_type
+            test_case.incident_state = req.incident_state or "Abierto"
+
+        # Crear registro histórico de ejecución
+        execution = TestExecution(
+            id=str(uuid.uuid4()),
+            test_case_id=req.test_case_id,
+            result=req.result,
+            notes=req.notes,
+            severity=req.severity,
+            incident_type=req.incident_type,
+            incident_state=req.incident_state if req.result == "NO CUMPLE" else None,
+            tester_name=req.tester_name,
+        )
+        db.add(execution)
+        db.commit()
+
+        return {
+            "message": f"Ejecución registrada: {req.result}",
+            "execution_id": execution.id,
+            "test_case_id": req.test_case_id,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/execution/metrics")
+async def get_metrics(project_name: Optional[str] = None):
+    """Obtiene métricas de eficiencia del área de QA."""
+    db = SessionLocal()
+    try:
+        query = db.query(TestCase)
+        if project_name:
+            query = query.filter(TestCase.project_name == project_name)
+        all_cases = query.all()
+
+        total = len(all_cases)
+        executed = sum(1 for c in all_cases if c.status == "Ejecutado")
+        cumple = sum(1 for c in all_cases if c.result == "CUMPLE")
+        no_cumple = sum(1 for c in all_cases if c.result == "NO CUMPLE")
+        pending = total - executed
+
+        # Distribución por tipo de prueba
+        by_type = {}
+        for c in all_cases:
+            by_type[c.test_type] = by_type.get(c.test_type, 0) + 1
+
+        # Distribución por severidad (solo los que no cumplen)
+        by_severity = {}
+        for c in all_cases:
+            if c.result == "NO CUMPLE" and c.severity:
+                by_severity[c.severity] = by_severity.get(c.severity, 0) + 1
+
+        return {
+            "total_cases": total,
+            "executed": executed,
+            "pending": pending,
+            "cumple": cumple,
+            "no_cumple": no_cumple,
+            "pass_rate": round((cumple / executed * 100) if executed > 0 else 0, 1),
+            "execution_rate": round((executed / total * 100) if total > 0 else 0, 1),
+            "by_type": by_type,
+            "by_severity": by_severity,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/execution/history")
+async def get_execution_history():
+    """Historial completo de ejecuciones."""
+    db = SessionLocal()
+    try:
+        executions = db.query(TestExecution).order_by(TestExecution.executed_at.desc()).limit(100).all()
+        return [
+            {
+                "id": e.id,
+                "test_case_id": e.test_case_id,
+                "result": e.result,
+                "notes": e.notes,
+                "severity": e.severity,
+                "incident_type": e.incident_type,
+                "incident_state": e.incident_state,
+                "tester_name": e.tester_name,
+                "executed_at": e.executed_at.isoformat(),
+            }
+            for e in executions
+        ]
+    finally:
+        db.close()

@@ -1,0 +1,58 @@
+
+# ══════════════════════════════════════════════════════════════
+# PRQA — Docker Compose
+# Asistente QA con IA Local — Ciel Ingeniería S.A.S
+#
+# Servicios:
+#   1. ollama  → Servidor LLM local (llama3.1:8b)
+#   2. app     → Backend FastAPI + Frontend estático (un solo contenedor)
+#
+# Uso:
+#   docker-compose up -d
+#   Abrir: http://localhost:8000
+# ══════════════════════════════════════════════════════════════
+
+services:
+
+  # ── 1. Servidor LLM Local ───────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: prqa_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_NUM_PARALLEL=4
+    restart: unless-stopped
+
+  # ── 2. Aplicación (API + Frontend estático) ─────────────────
+  app:
+    build:
+      context: .                      # raíz del proyecto
+      dockerfile: backend/Dockerfile  # Dockerfile copia backend/ y frontend/
+    container_name: prqa_app
+    ports:
+      - "8000:8000"                   # Abrir http://localhost:8000
+    volumes:
+      - ./backend/app:/app            # Hot-reload del código Python
+      - ./frontend:/app/static        # Hot-reload del frontend
+      - ./knowledge_base:/app/knowledge_base
+      - prqa_db:/app/db
+      - prqa_chroma:/app/chroma_db
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-llama3.2:3b}
+      - CHROMA_PATH=/app/chroma_db
+      - DB_PATH=/app/db/prqa.db
+      - KNOWLEDGE_BASE_PATH=/app/knowledge_base
+      - STATIC_PATH=/app/static
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+# ── Volúmenes persistentes ──────────────────────────────────
+volumes:
+  ollama_data:    # Modelos LLM descargados
+  prqa_db:        # Base de datos SQLite (casos de prueba, ejecuciones)
+  prqa_chroma:    # Base de datos vectorial ChromaDB
