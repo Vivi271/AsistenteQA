@@ -21,26 +21,32 @@ from langchain_community.document_loaders import (
 
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3.2:3b")
 EMBED_MODEL = "nomic-embed-text"
 CHROMA_PATH = os.getenv("CHROMA_PATH", "/app/chroma_db")
 COLLECTION_NAME = "prqa_knowledge"
 
-SYSTEM_PROMPT = """Eres un asistente experto en calidad de software (QA) para Ciel Ingeniería S.A.S.
-Tu rol es ayudar al equipo de testers a:
-1. Analizar requerimientos técnicos y documentos MTR
-2. Generar casos de prueba detallados y precisos
-3. Responder preguntas sobre estándares y metodologías de prueba
-4. Apoyar en la validación de criterios de aceptación
+SYSTEM_PROMPT = """Eres CIEL AI, el asistente oficial de Inteligencia Artificial para Aseguramiento de Calidad (QA) de Ciel Ingeniería S.A.S., integrado en la plataforma PRQA.
 
-REGLAS:
-- Responde siempre en español
-- Sé técnico pero claro
-- Cuando generes casos de prueba, sigue el formato EOPA de la empresa
-- Si no tienes suficiente contexto, indícalo y solicita más información
-- Mantén la confidencialidad de la información de la empresa
+MÓDULOS DE LA PLATAFORMA PRQA:
+1. Base de Conocimiento: Carga, procesamiento e indexación semántica de documentos técnicos (MTR, BRD, plantillas) en ChromaDB.
+2. Generar Casos EOPA: Creación automática de matrices de prueba en Excel DTR029C por tipo (Funcionales, Negativos, Seguridad, Integración, UI/UX, Carga).
+3. Ejecutar Pruebas: Registro de resultados CUMPLE / NO CUMPLE, severidad de defectos (Crítica, Alta, Media, Baja) e incidencias.
+4. Tiempos de Ejecución: Cronómetro de sesiones de prueba y métricas de productividad.
+5. Dashboard: Indicadores de calidad en tiempo real (KPIs, tasa de éxito, defectos por severidad).
 
-Contexto de documentos disponibles:
+REGLAS DE ATENCIÓN (OBLIGATORIAS - NUNCA VIOLAR):
+- Tu nombre es ÚNICAMENTE "CIEL AI". NUNCA uses otro nombre.
+- Responde siempre en español con tono profesional y conciso (máximo 2 párrafos o listas cortas).
+- TEMA PERMITIDO: Solo calidad de software (QA), la aplicación PRQA, y los requerimientos/casos de prueba del proyecto activo.
+- TEMA PROHIBIDO: Ciencia, medicina, biología, historia, cocina, matemáticas, física, y cualquier tema ajeno a QA de software.
+- Si el contexto recuperado contiene información NO relacionada con QA de software (experimentos científicos, recetas, historia, etc.), IGNORA ese contexto por completo y responde:
+  "Solo puedo ayudarte con temas de calidad de software (QA), la aplicación PRQA o los documentos técnicos de tu proyecto."
+- Si el usuario pregunta algo ajeno a QA o PRQA, responde EXACTAMENTE:
+  "Solo puedo ayudarte con temas de calidad de software (QA), la aplicación PRQA o los documentos técnicos de tu proyecto."
+- Cuando el contexto SERÉ útil (requerimientos, casos de prueba, BRDs de software), úsalo y cita el nombre del archivo fuente.
+
+CONTEXTO DE DOCUMENTOS INDEXADOS (usar SOLO si es relevante para QA de software):
 {context}
 """
 
@@ -49,8 +55,8 @@ class RAGPipeline:
     """Pipeline RAG que combina ChromaDB para recuperación y Ollama para generación."""
 
     def __init__(self):
-        # Inicializar cliente Ollama
-        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=40.0)
+        # Inicializar cliente Ollama con timeout ampliado para CPU
+        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=180.0)
 
         # Inicializar ChromaDB persistente
         Path(CHROMA_PATH).mkdir(parents=True, exist_ok=True)
@@ -67,8 +73,8 @@ class RAGPipeline:
 
         # Splitter para fragmentar documentos
         self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=100,
+            chunk_size=600,
+            chunk_overlap=80,
             separators=["\n\n", "\n", ". ", " ", ""]
         )
 
@@ -195,8 +201,8 @@ class RAGPipeline:
 
         return len(chunks)
 
-    async def retrieve(self, query: str, n_results: int = 5, project_name: str = None) -> Tuple[str, List[str]]:
-        """Recupera los fragmentos más relevantes para una consulta."""
+    async def retrieve(self, query: str, n_results: int = 3, project_name: str = None) -> Tuple[str, List[str]]:
+        """Recupera los fragmentos más relevantes para una consulta, filtrando por relevancia semántica."""
         if self.collection.count() == 0:
             return "", []
 
@@ -209,6 +215,7 @@ class RAGPipeline:
         query_kwargs = {
             "query_embeddings": [query_embedding],
             "n_results": min(n_results, self.collection.count()),
+            "include": ["documents", "metadatas", "distances"],
         }
         if project_name:
             query_kwargs["where"] = {"project": project_name}
@@ -218,12 +225,32 @@ class RAGPipeline:
         if not results["documents"] or not results["documents"][0]:
             return "", []
 
-        context = "\n\n---\n\n".join(results["documents"][0])
-        sources = list({m["source"] for m in results["metadatas"][0]})
+        # Filtrar fragmentos con distancia coseno alta (> 0.55 = baja relevancia semántica)
+        # Distancia coseno: 0 = idéntico, 1 = opuesto. < 0.55 = relevante.
+        MAX_DISTANCE = 0.55
+        filtered_docs = []
+        filtered_sources = []
+        distances = results.get("distances", [[]])[0]
+
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            distances
+        ):
+            if dist <= MAX_DISTANCE:
+                filtered_docs.append(doc)
+                filtered_sources.append(meta["source"])
+
+        if not filtered_docs:
+            # Ningún fragmento es lo suficientemente relevante
+            return "", []
+
+        context = "\n\n---\n\n".join(filtered_docs)
+        sources = list(set(filtered_sources))
         return context, sources
 
     async def query(self, question: str, use_knowledge_base: bool = True, project_name: str = None) -> Tuple[str, List[str]]:
-        """Consulta al LLM con contexto RAG."""
+        """Consulta al LLM con contexto RAG y parámetros optimizados para CPU."""
         self._check_ready()
         if not self._ready:
             raise RuntimeError("Ollama no está disponible.")
@@ -235,7 +262,7 @@ class RAGPipeline:
             context, sources = await self.retrieve(question, project_name=project_name)
 
         prompt = SYSTEM_PROMPT.format(
-            context=context if context else "No hay documentos indexados aún."
+            context=context if context else "No hay documentos indexados en este proyecto."
         )
 
         response = await asyncio.get_event_loop().run_in_executor(
@@ -246,7 +273,14 @@ class RAGPipeline:
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": question},
                 ],
-                options={"temperature": 0.3, "num_predict": 2048},
+                options={
+                    "temperature": 0.25,
+                    "num_predict": 200,
+                    "num_ctx": 768,
+                    "num_thread": 6,
+                    "top_k": 20,
+                    "top_p": 0.85
+                },
             )
         )
 
@@ -265,7 +299,7 @@ class RAGPipeline:
             context, _ = await self.retrieve(question, project_name=project_name)
 
         prompt = SYSTEM_PROMPT.format(
-            context=context if context else "No hay documentos indexados aún."
+            context=context if context else "No hay documentos indexados en este proyecto."
         )
 
         stream = self.ollama_client.chat(
@@ -275,7 +309,12 @@ class RAGPipeline:
                 {"role": "user", "content": question},
             ],
             stream=True,
-            options={"temperature": 0.3},
+            options={
+                "temperature": 0.25,
+                "num_predict": 200,
+                "num_ctx": 768,
+                "num_thread": 6
+            },
         )
 
         for chunk in stream:

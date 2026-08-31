@@ -70,7 +70,7 @@ class TestCaseGenerator:
 
     def __init__(self, rag: RAGPipeline):
         self.rag = rag
-        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=40.0)
+        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=120.0)
         self._case_counter: dict = {}
 
     # ─────────────────────────────────────────────────────────────────────────

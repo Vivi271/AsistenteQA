@@ -30,7 +30,7 @@ from pydantic import BaseModel
 import aiofiles
 
 from database import engine, Base, SessionLocal
-from models import TestCase, TestExecution, Document
+from models import TestCase, TestExecution, Document, TimerSession
 from rag_pipeline import RAGPipeline
 from test_generator import TestCaseGenerator
 
@@ -79,6 +79,40 @@ async def startup_event():
         db.execute(text("UPDATE test_cases SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
         db.commit()
         print("Migraciones de project_name a 'Proyectos' completadas exitosamente en SQLite.")
+
+        # Migrar columnas de tiempo en test_executions si no existen
+        for col_def in [
+            "ALTER TABLE test_executions ADD COLUMN execution_time_seconds REAL",
+            "ALTER TABLE test_executions ADD COLUMN started_at DATETIME",
+            "ALTER TABLE test_executions ADD COLUMN paused_seconds REAL DEFAULT 0.0",
+        ]:
+            try:
+                db.execute(text(col_def))
+                db.commit()
+            except Exception:
+                pass
+
+        # Crear tabla timer_sessions si no existe (por si la BD ya existía)
+        try:
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS timer_sessions (
+                    id VARCHAR PRIMARY KEY,
+                    test_case_id VARCHAR REFERENCES test_cases(id),
+                    project_name VARCHAR DEFAULT 'Proyectos',
+                    started_at DATETIME NOT NULL,
+                    stopped_at DATETIME,
+                    paused_seconds REAL DEFAULT 0.0,
+                    execution_time_seconds REAL,
+                    is_running BOOLEAN DEFAULT 1,
+                    is_paused BOOLEAN DEFAULT 0,
+                    pause_started_at DATETIME,
+                    tester_name VARCHAR,
+                    created_at DATETIME
+                )
+            """))
+            db.commit()
+        except Exception:
+            pass
         
         # Migrar archivos físicos al subdirectorio del proyecto "Proyectos"
         for cat in ["requirements", "mtr", "templates"]:
@@ -118,6 +152,12 @@ STATIC_PATH = Path(os.getenv("STATIC_PATH", "/app/static"))
 
 if STATIC_PATH.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_PATH)), name="static")
+    if (STATIC_PATH / "img").exists():
+        app.mount("/img", StaticFiles(directory=str(STATIC_PATH / "img")), name="img")
+    if (STATIC_PATH / "css").exists():
+        app.mount("/css", StaticFiles(directory=str(STATIC_PATH / "css")), name="css")
+    if (STATIC_PATH / "js").exists():
+        app.mount("/js", StaticFiles(directory=str(STATIC_PATH / "js")), name="js")
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root():
@@ -130,6 +170,14 @@ async def root():
         }
         return FileResponse(str(index_file), headers=headers)
     return HTMLResponse("<h1>PRQA API corriendo. Coloca el frontend en /app/static/</h1>")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    icon_file = STATIC_PATH / "favicon.ico"
+    if icon_file.exists():
+        return FileResponse(str(icon_file), media_type="image/x-icon")
+    from fastapi.responses import Response
+    return Response(status_code=204)
 
 
 
@@ -546,7 +594,7 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
         saved_db_cases = []
         try:
             saved_cases = []
-            for tc in test_cases:
+            for i, tc in enumerate(test_cases):
                 db_case = TestCase(
                     id=str(uuid.uuid4()),
                     case_id=tc.get("case_id") or tc.get("id", f"PRQA-{i+1:03d}"),
@@ -759,6 +807,7 @@ async def list_test_cases(project_name: Optional[str] = None, status: Optional[s
         cases = query.order_by(TestCase.created_at.desc()).all()
         return [
             {
+                "id": c.id,
                 "db_id": c.id,
                 "case_id": c.case_id,
                 "project_name": c.project_name,
@@ -776,7 +825,7 @@ async def list_test_cases(project_name: Optional[str] = None, status: Optional[s
                 "result": c.result,
                 "notes": c.notes,
                 "created_at": c.created_at.isoformat() + "Z",
-                "executed_at": c.executed_at.isoformat() if c.executed_at else None,
+                "executed_at": (c.executed_at.isoformat() + "Z") if c.executed_at else None,
             }
             for c in cases
         ]
@@ -946,9 +995,342 @@ async def get_execution_history():
                 "incident_type": e.incident_type,
                 "incident_state": e.incident_state,
                 "tester_name": e.tester_name,
-                "executed_at": e.executed_at.isoformat(),
+                "executed_at": (e.executed_at.isoformat() + "Z") if e.executed_at else None,
             }
             for e in executions
         ]
     finally:
         db.close()
+
+
+# ════════════════════════════════════════════════════════════════
+# MÓDULO 5 — TEMPORIZADOR DE EJECUCIÓN DE PRUEBAS
+# ════════════════════════════════════════════════════════════════
+
+class TimerStartRequest(BaseModel):
+    test_case_id: str
+    tester_name: Optional[str] = None
+    project_name: Optional[str] = "Proyectos"
+
+class TimerStopRequest(BaseModel):
+    session_id: str
+    result: str                          # "CUMPLE" | "NO CUMPLE"
+    notes: Optional[str] = None
+    severity: Optional[str] = None
+    incident_type: Optional[str] = None
+    incident_state: Optional[str] = "Abierto"
+
+
+def _calc_net_seconds(session: TimerSession, reference: datetime) -> float:
+    """Calcula segundos netos de ejecución descontando pausas."""
+    total = (reference - session.started_at.replace(tzinfo=None)).total_seconds()
+    paused = session.paused_seconds or 0.0
+    if session.is_paused and session.pause_started_at:
+        paused += (reference - session.pause_started_at.replace(tzinfo=None)).total_seconds()
+    return max(0.0, total - paused)
+
+
+@app.post("/api/timer/start")
+async def timer_start(req: TimerStartRequest):
+    """Inicia un cronómetro para un caso de prueba."""
+    db = SessionLocal()
+    try:
+        tc = db.query(TestCase).filter(TestCase.id == req.test_case_id).first()
+        if not tc:
+            raise HTTPException(404, "Caso de prueba no encontrado.")
+
+        # Cancelar cualquier sesión activa previa del mismo caso
+        prev = db.query(TimerSession).filter(
+            TimerSession.test_case_id == req.test_case_id,
+            TimerSession.is_running == True
+        ).first()
+        if prev:
+            prev.is_running = False
+            prev.stopped_at = datetime.now()
+            db.commit()
+
+        session = TimerSession(
+            id=str(uuid.uuid4()),
+            test_case_id=req.test_case_id,
+            project_name=req.project_name or tc.project_name,
+            started_at=datetime.now(),
+            is_running=True,
+            is_paused=False,
+            paused_seconds=0.0,
+            tester_name=req.tester_name,
+            created_at=datetime.now(),
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        return {
+            "session_id": session.id,
+            "test_case_id": req.test_case_id,
+            "started_at": session.started_at.isoformat(),
+            "status": "running"
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/timer/pause")
+async def timer_pause(session_id: str):
+    """Pausa el cronómetro activo."""
+    db = SessionLocal()
+    try:
+        session = db.query(TimerSession).filter(TimerSession.id == session_id).first()
+        if not session or not session.is_running:
+            raise HTTPException(404, "Sesión no encontrada o ya detenida.")
+        if session.is_paused:
+            raise HTTPException(400, "El cronómetro ya está en pausa.")
+        session.is_paused = True
+        session.pause_started_at = datetime.now()
+        db.commit()
+        net = _calc_net_seconds(session, datetime.now())
+        return {"status": "paused", "elapsed_seconds": net}
+    finally:
+        db.close()
+
+
+@app.post("/api/timer/resume")
+async def timer_resume(session_id: str):
+    """Reanuda un cronómetro en pausa."""
+    db = SessionLocal()
+    try:
+        session = db.query(TimerSession).filter(TimerSession.id == session_id).first()
+        if not session or not session.is_running:
+            raise HTTPException(404, "Sesión no encontrada o ya detenida.")
+        if not session.is_paused:
+            raise HTTPException(400, "El cronómetro no está en pausa.")
+        if session.pause_started_at:
+            paused_now = (datetime.now() - session.pause_started_at.replace(tzinfo=None)).total_seconds()
+            session.paused_seconds = (session.paused_seconds or 0.0) + paused_now
+        session.is_paused = False
+        session.pause_started_at = None
+        db.commit()
+        net = _calc_net_seconds(session, datetime.now())
+        return {"status": "running", "elapsed_seconds": net}
+    finally:
+        db.close()
+
+
+@app.post("/api/timer/stop")
+async def timer_stop(req: TimerStopRequest):
+    """Detiene el cronómetro y registra el resultado de ejecución."""
+    if req.result not in ["CUMPLE", "NO CUMPLE"]:
+        raise HTTPException(400, "El resultado debe ser 'CUMPLE' o 'NO CUMPLE'.")
+
+    db = SessionLocal()
+    try:
+        session = db.query(TimerSession).filter(TimerSession.id == req.session_id).first()
+        if not session:
+            raise HTTPException(404, "Sesión de cronómetro no encontrada.")
+
+        now = datetime.now()
+        net_seconds = _calc_net_seconds(session, now)
+
+        session.stopped_at = now
+        session.is_running = False
+        session.is_paused = False
+        session.execution_time_seconds = net_seconds
+
+        # Actualizar el caso de prueba
+        tc = db.query(TestCase).filter(TestCase.id == session.test_case_id).first()
+        if tc:
+            tc.result = req.result
+            tc.status = "Ejecutado"
+            tc.notes = req.notes
+            tc.executed_at = now
+            if req.result == "NO CUMPLE":
+                tc.incident_type = req.incident_type
+                tc.incident_state = req.incident_state or "Abierto"
+
+        # Crear registro de ejecución con tiempo
+        execution = TestExecution(
+            id=str(uuid.uuid4()),
+            test_case_id=session.test_case_id,
+            result=req.result,
+            notes=req.notes,
+            severity=req.severity,
+            incident_type=req.incident_type,
+            incident_state=req.incident_state if req.result == "NO CUMPLE" else None,
+            tester_name=session.tester_name,
+            executed_at=now,
+            execution_time_seconds=net_seconds,
+            started_at=session.started_at,
+            paused_seconds=session.paused_seconds or 0.0,
+        )
+        db.add(execution)
+        db.commit()
+
+        return {
+            "session_id": req.session_id,
+            "test_case_id": session.test_case_id,
+            "result": req.result,
+            "execution_time_seconds": net_seconds,
+            "execution_id": execution.id,
+            "status": "completed"
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/timer/active")
+async def timer_get_active(test_case_id: str):
+    """Devuelve la sesión activa de un caso, si existe."""
+    db = SessionLocal()
+    try:
+        session = db.query(TimerSession).filter(
+            TimerSession.test_case_id == test_case_id,
+            TimerSession.is_running == True
+        ).first()
+        if not session:
+            return {"active": False}
+        net = _calc_net_seconds(session, datetime.now())
+        return {
+            "active": True,
+            "session_id": session.id,
+            "started_at": session.started_at.isoformat(),
+            "elapsed_seconds": net,
+            "is_paused": session.is_paused,
+            "paused_seconds": session.paused_seconds or 0.0,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/timer/stats")
+async def timer_stats(project_name: Optional[str] = None):
+    """Análiticas de tiempo de ejecución por proyecto."""
+    db = SessionLocal()
+    try:
+        query = db.query(TestExecution).filter(TestExecution.execution_time_seconds.isnot(None))
+
+        # Filtrar por proyecto uniendo con TestCase
+        if project_name:
+            tc_ids = [tc.id for tc in db.query(TestCase).filter(TestCase.project_name == project_name).all()]
+            query = query.filter(TestExecution.test_case_id.in_(tc_ids))
+
+        executions = query.all()
+        if not executions:
+            return {
+                "total_executed": 0, "avg_seconds": 0, "total_seconds": 0,
+                "min_seconds": 0, "max_seconds": 0,
+                "by_type": {}, "by_rf": [], "history": []
+            }
+
+        times = [e.execution_time_seconds for e in executions]
+        avg   = sum(times) / len(times)
+        total = sum(times)
+        mn    = min(times)
+        mx    = max(times)
+
+        # Por tipo de prueba (join con TestCase)
+        by_type = {}
+        by_rf   = {}
+        history = []
+        for e in executions:
+            tc = db.query(TestCase).filter(TestCase.id == e.test_case_id).first()
+            if tc:
+                t = tc.test_type or "DESCONOCIDO"
+                if t not in by_type:
+                    by_type[t] = {"count": 0, "total_seconds": 0.0}
+                by_type[t]["count"] += 1
+                by_type[t]["total_seconds"] += e.execution_time_seconds
+
+                # Agrupar por RF (módulo)
+                rf = tc.module or "General"
+                if rf not in by_rf:
+                    by_rf[rf] = {"count": 0, "total_seconds": 0.0, "avg_seconds": 0.0}
+                by_rf[rf]["count"] += 1
+                by_rf[rf]["total_seconds"] += e.execution_time_seconds
+
+            history.append({
+                "execution_id": e.id,
+                "test_case_id": e.test_case_id,
+                "case_id": tc.case_id if tc else "",
+                "title": tc.title if tc else "(eliminado)",
+                "module": tc.module if tc else "",
+                "test_type": tc.test_type if tc else "",
+                "result": e.result,
+                "execution_time_seconds": e.execution_time_seconds,
+                "tester_name": e.tester_name,
+                "executed_at": (e.executed_at.isoformat() + "Z") if e.executed_at else None,
+            })
+
+        # Calcular promedios por RF
+        for rf in by_rf:
+            by_rf[rf]["avg_seconds"] = by_rf[rf]["total_seconds"] / by_rf[rf]["count"]
+
+        # Ordenar historial por fecha descendente
+        history.sort(key=lambda x: x["executed_at"] or "", reverse=True)
+
+        # Calcular promedios por tipo
+        for t in by_type:
+            by_type[t]["avg_seconds"] = by_type[t]["total_seconds"] / by_type[t]["count"]
+
+        return {
+            "total_executed": len(executions),
+            "avg_seconds": round(avg, 2),
+            "total_seconds": round(total, 2),
+            "min_seconds": round(mn, 2),
+            "max_seconds": round(mx, 2),
+            "by_type": [
+                {"type": k, "count": v["count"], "avg_seconds": round(v["avg_seconds"], 2)}
+                for k, v in sorted(by_type.items(), key=lambda x: -x[1]["total_seconds"])
+            ],
+            "by_rf": [
+                {"rf": k, "count": v["count"],
+                 "total_seconds": round(v["total_seconds"], 2),
+                 "avg_seconds": round(v["avg_seconds"], 2)}
+                for k, v in sorted(by_rf.items(), key=lambda x: -x[1]["total_seconds"])
+            ],
+            "history": history[:50],
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/timer/sessions")
+async def timer_sessions_list(project_name: Optional[str] = None):
+    """Lista todas las sesiones completadas con sus tiempos."""
+    db = SessionLocal()
+    try:
+        query = db.query(TimerSession).filter(TimerSession.is_running == False)
+        if project_name:
+            query = query.filter(TimerSession.project_name == project_name)
+        sessions = query.order_by(TimerSession.stopped_at.desc()).limit(100).all()
+        result = []
+        for s in sessions:
+            tc = db.query(TestCase).filter(TestCase.id == s.test_case_id).first()
+            result.append({
+                "session_id": s.id,
+                "test_case_id": s.test_case_id,
+                "case_id": tc.case_id if tc else "",
+                "title": tc.title if tc else "(eliminado)",
+                "module": tc.module if tc else "",
+                "result": tc.result if tc else None,
+                "execution_time_seconds": s.execution_time_seconds,
+                "tester_name": s.tester_name,
+                "started_at": (s.started_at.isoformat() + "Z") if s.started_at else None,
+                "stopped_at": (s.stopped_at.isoformat() + "Z") if s.stopped_at else None,
+            })
+        return result
+    finally:
+        db.close()
+
+
+@app.delete("/api/timer/executions/{execution_id}")
+async def delete_timer_execution(execution_id: str):
+    """Elimina un registro específico del historial de ejecuciones cronometradas."""
+    db = SessionLocal()
+    try:
+        execution = db.query(TestExecution).filter(TestExecution.id == execution_id).first()
+        if not execution:
+            raise HTTPException(404, "Registro de ejecución no encontrado.")
+        db.delete(execution)
+        db.commit()
+        return {"deleted": True, "execution_id": execution_id}
+    finally:
+        db.close()
+

@@ -8,10 +8,27 @@
 // Configuración
 // ══════════════════════════════════════════════════════════════
 const API_BASE = '';  // nginx hace proxy de /api/ → backend:8000
-let currentModule = 'chat';
+let currentModule = 'documents';
 let selectedResult = null;
 let currentExecutionCaseId = null;
 let allTestCases = [];
+let activeIndexingFile = null;
+let _dashAllCases = [];
+let _timerInterval = null;
+let _timerSeconds = 0;
+let _timerSessionId = null;
+let _timerRunning = false;
+let _isAIProcessing = false;
+let _activeAbortController = null;
+let _transcriptOpen = false;
+let _textInputOpen = false;
+let _lastAIResponse = '';
+let _isMuted = false;
+let _generatorDocsCache = [];
+let chatDrawerOpen = false;
+let _lastProjectList = [];
+let _lastLogEntry = { type: null, text: null, time: 0 };
+let _currentInterimLine = null;
 
 // ══════════════════════════════════════════════════════════════
 // ESPACIO DE TRABAJO POR PROYECTOS (ESTADO GLOBAL Y CRUD)
@@ -45,10 +62,10 @@ async function loadProjectsList() {
   try {
     const res = await fetch(`${API_BASE}/api/projects`);
     serverProjects = await res.json();
-  } catch(e) { /* sin conexión */ }
+  } catch (e) { /* sin conexión */ }
 
   const custom = _getCustomProjects();
-  const all = [...new Set(['General', ...serverProjects, ...custom])].sort();
+  const all = [...new Set(['Proyectos', 'General', ...serverProjects, ...custom])].sort();
 
   // Actualizar el hidden <select> (legado para compatibilidad)
   const select = document.getElementById('projectSelect');
@@ -68,7 +85,6 @@ async function loadProjectsList() {
 }
 
 // Guardar lista para poder re-renderizar cuando cambia el proyecto activo
-let _lastProjectList = [];
 
 function renderProjectDropdown(projects) {
   if (projects && projects.length > 0) _lastProjectList = projects;
@@ -126,7 +142,7 @@ function handleProjectChange(val) {
 }
 
 // Cerrar dropdown al hacer clic fuera
-document.addEventListener('click', function(e) {
+document.addEventListener('click', function (e) {
   const card = document.getElementById('projectSelectorCard');
   if (card && !card.contains(e.target)) closeProjectDropdown();
 });
@@ -279,14 +295,36 @@ function refreshActiveModuleData() {
 // Inicialización
 // ══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
+  // Reset AI processing state on fresh load
+  _isAIProcessing = false;
+  _activeAbortController = null;
+  window._isAIProcessing = false;
+  window._lastAIResponse = '';
+
+  // Exponer todas las funciones globales
+  window.queryCielAI = queryCielAI;
+  window.stopAI = stopAI;
+  window.appendJarvisLog = appendJarvisLog;
+  window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
+  window.toggleTranscriptDrawer = toggleTranscriptDrawer;
+  window.toggleTranscriptPopup = toggleTranscriptPopup;
+  window.showToast = showToast;
+  window.toggleListening = toggleListening;
+  window.toggleTTS = toggleTTS;
+  window.toggleTextInput = toggleTextInput;
+  window.sendTextToAI = sendTextToAI;
+
+  // Registrar mensaje inicial dinámico en la consola de transcripción
+  appendJarvisLog('system', 'CIEL AI online · Sistema inicializado');
+
   const savedTheme = localStorage.getItem('prqa-theme') || 'dark';
   toggleTheme(savedTheme);
 
   checkHealth();
   setInterval(checkHealth, 30000);
-  
+
   await loadProjectsList();
-  
+
   // Set default active project name in generated config projectName field
   const projInput = document.getElementById('projectName');
   if (projInput) projInput.value = currentProject;
@@ -297,7 +335,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadTestCasesForExecution();
   loadDashboard();
 
-  setupDragDrop();
+  // Reloj HUD en tiempo real
+  updateHudClock();
+  setInterval(updateHudClock, 1000);
+
+  // Ocultar boot screen con transición suave
+  setTimeout(() => {
+    const bs = document.getElementById('bootScreen');
+    if (bs) bs.classList.add('hidden');
+  }, 1200);
 
   // Show onboarding on first visit
   if (!localStorage.getItem('prqa-onboarding-done')) {
@@ -305,33 +351,102 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+function updateHudClock() {
+  const clock = document.getElementById('hudClock');
+  if (!clock) return;
+  const now = new Date();
+  clock.textContent = now.toLocaleTimeString('es-CO', { hour12: false });
+}
+
 // ══════════════════════════════════════════════════════════════
 // Health Check
 // ══════════════════════════════════════════════════════════════
 async function checkHealth() {
-  const dot = document.getElementById('statusDot');
-  const label = document.getElementById('statusLabel');
-  const model = document.getElementById('statusModel');
+  const dot = document.getElementById('statusDot') || document.querySelector('.hud-system-dot');
+  const label = document.getElementById('statusLabel') || document.querySelector('.hud-system-badge');
+  const model = document.getElementById('statusModel') || document.getElementById('hudModelChip');
 
   try {
     const res = await fetch(`${API_BASE}/api/health`);
     const data = await res.json();
 
     if (data.status === 'ok' && data.rag_ready) {
-      dot.className = 'status-dot online';
-      label.textContent = 'IA Conectada';
-      model.textContent = data.model || 'llama3.1:8b';
+      if (dot) {
+        dot.className = 'hud-system-dot online';
+        dot.style.background = 'var(--accent-success, #10b981)';
+      }
+      if (model) model.textContent = data.model || 'llama3.2';
     } else {
-      dot.className = 'status-dot';
-      dot.style.background = '#f59e0b';
-      label.textContent = 'Iniciando...';
-      model.textContent = data.model || 'llama3.1:8b';
+      if (dot) {
+        dot.className = 'hud-system-dot';
+        dot.style.background = '#f59e0b';
+      }
+      if (model) model.textContent = data.model || 'llama3.2';
     }
   } catch (e) {
-    dot.className = 'status-dot offline';
-    label.textContent = 'Sin conexión';
-    model.textContent = 'Backend caído';
+    if (dot) {
+      dot.className = 'hud-system-dot offline';
+      dot.style.background = '#ef4444';
+    }
+    if (model) model.textContent = 'OFFLINE';
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Control del Panel Lateral (Sidebar Colapsable & Resizable)
+// ══════════════════════════════════════════════════════════════
+function toggleSidebar() {
+  const layout = document.getElementById('appLayout');
+  const btn = document.getElementById('sidebarCollapseBtn');
+  if (!layout) return;
+  const isCollapsed = layout.classList.toggle('sidebar-collapsed');
+  if (btn) {
+    btn.classList.toggle('collapsed', isCollapsed);
+    btn.title = isCollapsed ? 'Mostrar panel lateral' : 'Ocultar panel lateral';
+    if (!isCollapsed) {
+      const currentW = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width') || '260px';
+      btn.style.left = currentW.trim();
+    } else {
+      btn.style.left = '0px';
+    }
+  }
+}
+
+function initSidebarResizer() {
+  const resizer = document.getElementById('sidebarResizer');
+  const sidebar = document.getElementById('sidebar');
+  const layout = document.getElementById('appLayout');
+  const btn = document.getElementById('sidebarCollapseBtn');
+  if (!resizer || !sidebar || !layout) return;
+
+  let isResizing = false;
+
+  resizer.addEventListener('mousedown', (e) => {
+    if (layout.classList.contains('sidebar-collapsed')) return;
+    isResizing = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const newWidth = Math.max(180, Math.min(e.clientX, 500));
+    document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+    sidebar.style.width = `${newWidth}px`;
+    sidebar.style.minWidth = `${newWidth}px`;
+    sidebar.style.maxWidth = `${newWidth}px`;
+    if (btn && !layout.classList.contains('sidebar-collapsed')) {
+      btn.style.left = `${newWidth}px`;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -359,6 +474,7 @@ function switchModule(name) {
   }
   if (name === 'documents') loadDocuments();
   if (name === 'execution') loadTestCasesForExecution();
+  if (name === 'timer') loadTimerModule();
   if (name === 'dashboard') loadDashboard();
 }
 
@@ -390,8 +506,8 @@ async function loadTestCasesForGenerator() {
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:0.6rem;width:100%;">
         ${files.map(f => {
-          const displayTitle = `Matriz EOPA — ${f.module}`;
-          return `
+      const displayTitle = `Matriz EOPA — ${f.module}`;
+      return `
           <div class="excel-file-card" style="
             display:flex;align-items:center;gap:0.75rem;
             background:var(--bg-input);border:1px solid var(--border-subtle);
@@ -506,54 +622,185 @@ async function downloadSpecificExcel(filename) {
 
 
 // ══════════════════════════════════════════════════════════════
-// MÓDULO 2 — GENERADOR (CARGA DE DOCUMENTOS DESDE EL RAG)
 // ══════════════════════════════════════════════════════════════
+// MÓDULO 2 — GENERADOR (MULTI-SELECCIÓN DE DOCUMENTOS DE REFERENCIA)
+// ══════════════════════════════════════════════════════════════
+let generatorAvailableDocs = [];
+let generatorSelectedDocIds = [];
+
 async function loadDocumentsForGenerator() {
-  const select = document.getElementById('docSelect');
-  if (!select) return;
+  const listEl = document.getElementById('docCheckboxList');
+  if (!listEl) return;
 
   try {
     const res = await fetch(`${API_BASE}/api/documents?project=${encodeURIComponent(currentProject)}`);
-    const docs = await res.json();
+    generatorAvailableDocs = (await res.json()) || [];
 
-    // Reset select options
-    select.innerHTML = '<option value="">-- Seleccionar documento indexado (Opcional) --</option>';
+    // Filtrar IDs seleccionados que ya no existan en el proyecto
+    generatorSelectedDocIds = generatorSelectedDocIds.filter(id => generatorAvailableDocs.some(d => d.id === id));
 
-    docs.forEach(doc => {
-      const opt = document.createElement('option');
-      opt.value = doc.id;
-      opt.textContent = `${doc.filename} (${doc.category === 'mtr' ? 'MTR' : 'Requerimientos'} - ${doc.chunks} partes)`;
-      select.appendChild(opt);
-    });
+    renderDocMultiSelectOptions();
+    renderDocSelectedChips();
   } catch (e) {
     console.error('Error cargando documentos para el generador:', e);
   }
 }
 
-async function loadDocToTextarea(docId) {
-  const textarea = document.getElementById('requirementText');
-  if (!textarea) return;
+function toggleDocMultiSelectDropdown(e) {
+  if (e) e.stopPropagation();
+  const dropdown = document.getElementById('docMultiSelectDropdown');
+  if (dropdown) dropdown.classList.toggle('hidden');
+}
 
-  if (!docId) {
-    textarea.value = '';
+// Cerrar dropdown al hacer click fuera
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('docMultiSelectWrap');
+  const dropdown = document.getElementById('docMultiSelectDropdown');
+  if (dropdown && !dropdown.classList.contains('hidden') && wrap && !wrap.contains(e.target)) {
+    dropdown.classList.add('hidden');
+  }
+});
+
+function renderDocMultiSelectOptions() {
+  const listEl = document.getElementById('docCheckboxList');
+  if (!listEl) return;
+
+  if (generatorAvailableDocs.length === 0) {
+    listEl.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);padding:0.4rem;">No hay documentos indexados en la Base de Conocimiento de este proyecto.</div>';
+    updateDocMultiSelectLabel();
     return;
   }
 
-  textarea.placeholder = "Cargando texto indexado del documento...";
-  textarea.value = "";
-  textarea.disabled = true;
+  const categoryIcons = { mtr: '📋', requirements: '📄', templates: '📁' };
 
-  try {
-    const res = await fetch(`${API_BASE}/api/documents/${docId}/content`);
-    if (!res.ok) throw new Error('No se pudo obtener el contenido del documento.');
-    const data = await res.json();
-    textarea.value = data.content || '';
-  } catch (e) {
-    showToast('Error cargando documento: ' + e.message, 'error');
+  listEl.innerHTML = generatorAvailableDocs.map(doc => {
+    const isChecked = generatorSelectedDocIds.includes(doc.id);
+    const icon = categoryIcons[doc.category] || '📄';
+    return `
+      <label class="doc-checkbox-item">
+        <input type="checkbox" value="${doc.id}" ${isChecked ? 'checked' : ''} onchange="toggleSingleDocSelection('${doc.id}', this.checked)" />
+        <span style="font-size:0.85rem;">${icon}</span>
+        <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${doc.filename}</span>
+        <span style="font-size:0.65rem;color:var(--text-muted);">(${doc.chunks || 0} frags)</span>
+      </label>
+    `;
+  }).join('');
+
+  const selectAllCb = document.getElementById('selectAllDocsCheckbox');
+  if (selectAllCb) {
+    selectAllCb.checked = generatorAvailableDocs.length > 0 && generatorSelectedDocIds.length === generatorAvailableDocs.length;
+  }
+
+  updateDocMultiSelectLabel();
+}
+
+function updateDocMultiSelectLabel() {
+  const labelEl = document.getElementById('docMultiSelectLabel');
+  if (!labelEl) return;
+  if (generatorSelectedDocIds.length === 0) {
+    labelEl.textContent = '-- Seleccionar documentos indexados (0 seleccionados) --';
+  } else {
+    labelEl.textContent = `✅ ${generatorSelectedDocIds.length} documento(s) seleccionado(s) como contexto`;
+  }
+}
+
+async function toggleSingleDocSelection(docId, isChecked) {
+  if (isChecked) {
+    if (!generatorSelectedDocIds.includes(docId)) generatorSelectedDocIds.push(docId);
+  } else {
+    generatorSelectedDocIds = generatorSelectedDocIds.filter(id => id !== docId);
+  }
+
+  const selectAllCb = document.getElementById('selectAllDocsCheckbox');
+  if (selectAllCb) {
+    selectAllCb.checked = generatorAvailableDocs.length > 0 && generatorSelectedDocIds.length === generatorAvailableDocs.length;
+  }
+
+  updateDocMultiSelectLabel();
+  renderDocSelectedChips();
+  await syncSelectedDocsToTextarea();
+}
+
+async function toggleSelectAllDocs(isChecked) {
+  if (isChecked) {
+    generatorSelectedDocIds = generatorAvailableDocs.map(d => d.id);
+  } else {
+    generatorSelectedDocIds = [];
+  }
+
+  renderDocMultiSelectOptions();
+  renderDocSelectedChips();
+  await syncSelectedDocsToTextarea();
+}
+
+function removeSelectedDocChip(docId) {
+  toggleSingleDocSelection(docId, false);
+  renderDocMultiSelectOptions();
+}
+
+function renderDocSelectedChips() {
+  const container = document.getElementById('docSelectedChips');
+  if (!container) return;
+
+  if (generatorSelectedDocIds.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const categoryIcons = { mtr: '📋', requirements: '📄', templates: '📁' };
+
+  container.innerHTML = generatorSelectedDocIds.map(id => {
+    const doc = generatorAvailableDocs.find(d => d.id === id);
+    if (!doc) return '';
+    const icon = categoryIcons[doc.category] || '📄';
+    return `
+      <div class="doc-chip" title="${doc.filename}">
+        <span>${icon} ${doc.filename}</span>
+        <span class="doc-chip-remove" onclick="removeSelectedDocChip('${doc.id}')" title="Quitar">&times;</span>
+      </div>
+    `;
+  }).join('');
+}
+
+async function syncSelectedDocsToTextarea() {
+  const textarea = document.getElementById('promptInput') || document.getElementById('requirementText');
+  if (!textarea) return;
+
+  if (generatorSelectedDocIds.length === 0) {
     textarea.value = '';
+    textarea.placeholder = "Describe la funcionalidad a probar, flujos alternos o pega criterios de aceptación...";
+    return;
+  }
+
+  textarea.placeholder = "Cargando contenido de los documentos seleccionados...";
+  
+  try {
+    const contents = await Promise.all(generatorSelectedDocIds.map(async id => {
+      const doc = generatorAvailableDocs.find(d => d.id === id);
+      try {
+        const res = await fetch(`${API_BASE}/api/documents/${id}/content`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return {
+          filename: doc ? doc.filename : 'Documento',
+          category: doc ? doc.category : '',
+          content: data.content || ''
+        };
+      } catch (err) {
+        return null;
+      }
+    }));
+
+    const validContents = contents.filter(c => c && c.content && c.content.trim());
+    if (validContents.length > 0) {
+      textarea.value = validContents.map(c => `=== DOCUMENTO DE REFERENCIA: ${c.filename} (${(c.category || 'Requerimientos').toUpperCase()}) ===\n${c.content.trim()}`).join('\n\n');
+    } else {
+      textarea.value = '';
+    }
+  } catch (e) {
+    console.error('Error sincronizando texto de documentos:', e);
   } finally {
-    textarea.disabled = false;
-    textarea.placeholder = "Selecciona un documento arriba para cargarlo automáticamente, o pega/escribe el requerimiento de forma manual aquí...";
+    textarea.placeholder = "Describe la funcionalidad a probar, flujos alternos o pega criterios de aceptación...";
   }
 }
 
@@ -662,9 +909,9 @@ function appendMessage(role, text, sources = []) {
   el.innerHTML = `
     <div class="message-avatar">
       ${isUser
-        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
-        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`
-      }
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`
+    }
     </div>
     <div class="message-content">
       <div class="message-header">
@@ -767,7 +1014,7 @@ function removeTestType(val) {
   }
 }
 
-document.addEventListener('click', function(e) {
+document.addEventListener('click', function (e) {
   const select = document.getElementById('customTestTypesSelect');
   const dropdown = document.getElementById('testTypesDropdown');
   if (select && dropdown && !select.contains(e.target)) {
@@ -783,14 +1030,15 @@ async function generateTestCases() {
   const loading = document.getElementById('generatorLoading');
   const container = document.getElementById('testCasesContainer');
 
-  const requirementText = document.getElementById('requirementText').value.trim();
+  const reqInput = document.getElementById('promptInput') || document.getElementById('requirementText');
+  const requirementText = reqInput ? reqInput.value.trim() : '';
   if (!requirementText) {
-    showToast('Por favor ingresa el texto del requerimiento.', 'error');
+    showToast('Por favor ingresa el requerimiento o selecciona documentos de referencia.', 'error');
     return;
   }
 
   const testTypes = Array.from(
-    document.querySelectorAll('#testTypesDropdown input:checked')
+    document.querySelectorAll('#testTypesContainer input:checked, #testTypesDropdown input:checked')
   ).map(cb => cb.value);
 
   if (testTypes.length === 0) {
@@ -798,9 +1046,11 @@ async function generateTestCases() {
     return;
   }
 
+  const numCasesEl = document.getElementById('numCases');
+  const numCases = numCasesEl ? parseInt(numCasesEl.value, 10) : 5;
+
   btn.disabled = true;
   loading.classList.remove('hidden');
-  // NO limpiamos el container para que el historial previo se siga viendo debajo del overlay
 
   try {
     const response = await fetch(`${API_BASE}/api/test-cases/generate`, {
@@ -811,7 +1061,7 @@ async function generateTestCases() {
         project_name: document.getElementById('projectName').value || currentProject || 'Proyecto',
         module: document.getElementById('moduleName').value || 'General',
         test_types: testTypes,
-        num_cases: parseInt(document.getElementById('numCases').value),
+        num_cases: numCases,
       }),
     });
 
@@ -862,7 +1112,7 @@ async function exportTestCases() {
     const blob = await response.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `CasosPrueba_${project || 'PRQA'}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.download = `CasosPrueba_${project || 'PRQA'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -875,26 +1125,35 @@ async function exportTestCases() {
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 3 — EJECUCIÓN DE PRUEBAS
 // ══════════════════════════════════════════════════════════════
+// Estado del módulo de ejecución
+let _execCurrentGroup = null; // { module, created_at, cases, sessionKey }
+
 async function loadTestCasesForExecution() {
-  const grid = document.getElementById('executionGrid');
-  const filterStatus = document.getElementById('filterStatus');
-  const statusFilter = filterStatus ? filterStatus.value : '';
+  const matrixGrid = document.getElementById('execMatrixGrid');
+  if (!matrixGrid) return;
+
+  // Asegurar que la vista de lista es visible
+  showExecMatrixListView();
 
   let url = `${API_BASE}/api/test-cases?project_name=${encodeURIComponent(currentProject)}`;
-  if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
 
   try {
     const res = await fetch(url);
     const cases = await res.json();
 
+    // Actualizar KPIs globales
+    updateExecGlobalKpis(cases || []);
+
     if (!cases || cases.length === 0) {
-      grid.innerHTML = `
+      matrixGrid.innerHTML = `
         <div class="empty-state" style="padding:3rem 2rem;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48" style="opacity:0.4">
             <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
           </svg>
           <p style="margin-top:0.75rem;font-weight:700;color:var(--text-secondary);">No hay casos de prueba disponibles</p>
-          <span style="font-size:0.82rem;color:var(--text-muted);max-width:320px;text-align:center;display:block;">Los casos de prueba se generan desde <strong>Generar Casos</strong>. Una vez generados aparecerán aquí automáticamente.</span>
+          <span style="font-size:0.82rem;color:var(--text-muted);max-width:320px;text-align:center;display:block;">
+            Los casos de prueba se generan desde <strong>Generar Casos</strong>. Una vez generados aparecerán aquí automáticamente.
+          </span>
           <div style="display:flex;gap:0.75rem;margin-top:1.25rem;">
             <button class="btn-primary" onclick="switchModule('generate')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
@@ -910,20 +1169,36 @@ async function loadTestCasesForExecution() {
       return;
     }
 
-    grid.innerHTML = renderExecutionGrouped(cases);
+    matrixGrid.innerHTML = renderExecMatrixCards(cases);
 
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state"><p>Error al cargar casos: ${e.message}</p></div>`;
+    if (matrixGrid) matrixGrid.innerHTML = `<div class="empty-state"><p>Error al cargar matrices: ${e.message}</p></div>`;
   }
 }
 
-// ── Agrupar casos por módulo + sesión de generación (hora truncada a minutos) ──
-function renderExecutionGrouped(cases) {
-  // Agrupar: clave = "módulo · fecha-hora" (primeros 16 chars del ISO timestamp)
+function updateExecGlobalKpis(cases) {
+  const total = cases.length;
+  const cumple = cases.filter(c => c.result === 'CUMPLE').length;
+  const noCumple = cases.filter(c => c.result === 'NO CUMPLE').length;
+  const pct = total > 0 ? Math.round((cumple / total) * 100) : 0;
+
+  const t = document.getElementById('execGlobalKpiTotal');
+  const p = document.getElementById('execGlobalKpiPass');
+  const f = document.getElementById('execGlobalKpiFail');
+  const r = document.getElementById('execGlobalKpiRate');
+
+  if (t) t.innerHTML = `${total} <em>Total Casos</em>`;
+  if (p) p.innerHTML = `${cumple} <em>Cumple</em>`;
+  if (f) f.innerHTML = `${noCumple} <em>No Cumple</em>`;
+  if (r) r.innerHTML = `${pct}% <em>Avance</em>`;
+}
+
+// ── Agrupar y renderizar tarjetas de matrices ──
+function renderExecMatrixCards(cases) {
   const groups = {};
   cases.forEach(tc => {
     const sessionKey = `${tc.module}|||${(tc.created_at || '').slice(0, 16)}`;
-    if (!groups[sessionKey]) groups[sessionKey] = { module: tc.module, created_at: tc.created_at, cases: [] };
+    if (!groups[sessionKey]) groups[sessionKey] = { module: tc.module, created_at: tc.created_at, cases: [], sessionKey };
     groups[sessionKey].cases.push(tc);
   });
 
@@ -931,136 +1206,217 @@ function renderExecutionGrouped(cases) {
     (b.created_at || '').localeCompare(a.created_at || '')
   );
 
-  return sorted.map((group, gIdx) => {
+  return sorted.map((group) => {
     const total = group.cases.length;
-    const ejecutados = group.cases.filter(c => c.status === 'Ejecutado').length;
     const cumple = group.cases.filter(c => c.result === 'CUMPLE').length;
     const noCumple = group.cases.filter(c => c.result === 'NO CUMPLE').length;
-    const pendientes = total - ejecutados;
-    const pct = total > 0 ? Math.round((ejecutados / total) * 100) : 0;
+    const pendientes = group.cases.filter(c => c.status === 'Pendiente' || !c.result).length;
+    const pct = total > 0 ? Math.round((cumple / total) * 100) : 0;
 
-    // Formatear fecha limpia
-    const rawDate = group.created_at || '';
-    let cleanDate = rawDate;
+    let cleanDate = group.created_at || '';
     try {
-      const d = new Date(rawDate);
-      cleanDate = d.toLocaleString('es-CO', {
-        day: '2-digit', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: true
-      });
-    } catch(_) {}
+      const iso = (typeof cleanDate === 'string' && !cleanDate.endsWith('Z') && !cleanDate.includes('+')) ? cleanDate + 'Z' : cleanDate;
+      const d = new Date(iso);
+      cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch (_) {}
 
-    const rows = group.cases.map(tc => {
-      const statusMap = {
-        'Pendiente': { cls: 'status-pending', label: 'Pendiente' },
-        'Ejecutado': tc.result === 'CUMPLE'
-          ? { cls: 'status-cumple', label: 'CUMPLE' }
-          : { cls: 'status-nocumple', label: 'NO CUMPLE' },
-      };
-      const status = statusMap[tc.status] || statusMap['Pendiente'];
-
-      return `
-        <tr class="exec-table-row">
-          <td class="exec-td exec-td-id"><span class="exec-case-id">${tc.case_id}</span></td>
-          <td class="exec-td exec-td-title"><div class="exec-title-cell">${tc.title}</div></td>
-          <td class="exec-td"><span class="tc-tag tag-type">${tc.test_type}</span></td>
-          <td class="exec-td exec-td-status"><span class="exec-status ${status.cls}">${status.label}</span></td>
-          <td class="exec-td exec-td-actions">
-            <button class="exec-btn-sm exec-btn-cumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10003; CUMPLE</button>
-            <button class="exec-btn-sm exec-btn-nocumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10007; NO CUMPLE</button>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    const encodedKey = encodeURIComponent(group.sessionKey);
 
     return `
-      <!-- ── Grupo: ${group.module} · ${cleanDate} ── -->
-      <div class="exec-group" style="margin-bottom:1.25rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;">
-
-        <!-- Encabezado colapsable del grupo -->
-        <div class="exec-group-header" onclick="toggleExecGroup('group-${gIdx}')"
-          style="display:flex;align-items:center;gap:1rem;padding:0.9rem 1.1rem;
-            background:var(--bg-panel);cursor:pointer;user-select:none;
-            border-bottom:1px solid var(--border-subtle);transition:var(--transition);"
-          onmouseenter="this.style.background='var(--bg-panel-hover)'"
-          onmouseleave="this.style.background='var(--bg-panel)'">
-
-          <!-- Ícono de colapso -->
-          <svg id="chevron-${gIdx}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"
-            style="color:var(--accent-primary);flex-shrink:0;transition:transform 0.2s ease;transform:rotate(0deg);">
-            <polyline points="6 9 12 15 18 9"/>
+      <div class="exec-matrix-card" onclick="openExecMatrixDetail('${encodedKey}')">
+        <!-- Icono Excel -->
+        <div class="exec-matrix-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
           </svg>
+        </div>
 
-          <!-- Módulo e ícono Excel -->
-          <div style="width:32px;height:32px;border-radius:6px;background:rgba(0,156,166,0.1);color:var(--accent-primary);
-            display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(0,156,166,0.2);">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            </svg>
+        <!-- Info principal -->
+        <div class="exec-matrix-card-body">
+          <div class="exec-matrix-card-title">📋 ${group.module}</div>
+          <div class="exec-matrix-card-meta">📅 ${cleanDate}</div>
+
+          <!-- Barra de progreso -->
+          <div class="exec-matrix-progress-wrap">
+            <div class="exec-matrix-progress-bar">
+              <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#009ca6,#00e5ff);border-radius:9999px;transition:width 0.4s ease;"></div>
+            </div>
+            <span class="exec-matrix-pct">${pct}%</span>
           </div>
 
-          <!-- Info del grupo -->
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:700;font-size:0.875rem;color:var(--text-primary);">
-              Módulo: ${group.module}
-            </div>
-            <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.1rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-              <span>📅 ${cleanDate}</span>
-              <span>·</span>
-              <span>${total} caso${total !== 1 ? 's' : ''}</span>
-            </div>
-          </div>
-
-          <!-- Badges de estado de ejecución + Botón Descargar -->
-          <div style="display:flex;gap:0.5rem;flex-shrink:0;align-items:center;">
-            ${pendientes > 0 ? `<span style="padding:0.2rem 0.55rem;border-radius:20px;font-size:0.68rem;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.25);">${pendientes} pendiente${pendientes !== 1 ? 's' : ''}</span>` : ''}
-            ${cumple > 0 ? `<span style="padding:0.2rem 0.55rem;border-radius:20px;font-size:0.68rem;font-weight:700;background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.25);">✓ ${cumple} CUMPLE</span>` : ''}
-            ${noCumple > 0 ? `<span style="padding:0.2rem 0.55rem;border-radius:20px;font-size:0.68rem;font-weight:700;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.2);">✗ ${noCumple} FALLA</span>` : ''}
-            <!-- Barra de progreso -->
-            <div style="width:70px;height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden;">
-              <div style="height:100%;width:${pct}%;background:var(--gradient-main);border-radius:3px;transition:width 0.4s ease;"></div>
-            </div>
-            <span style="font-size:0.68rem;color:var(--text-muted);min-width:28px;">${pct}%</span>
-            <!-- Botón Descargar Resultados del grupo -->
-            <button class="btn-primary" style="padding:0.38rem 0.8rem;font-size:0.72rem;border-radius:var(--radius-sm);margin-left:0.25rem;"
-              onclick="event.stopPropagation(); exportGroupResults('${group.module}', '${(group.created_at||'').slice(0,16)}')"
-              title="Descargar Excel con resultados de esta sesión">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              Resultados
-            </button>
-            <!-- Botón Eliminar esta sesión de pruebas -->
-            <button onclick="event.stopPropagation(); deleteModuleGroup('${group.module}')"
-              title="Eliminar este módulo y su archivo Excel"
-              style="padding:0.38rem 0.55rem;font-size:0.72rem;background:rgba(239,68,68,0.08);color:var(--accent-danger);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-sm);cursor:pointer;transition:var(--transition);"
-              onmouseenter="this.style.background='rgba(239,68,68,0.18)'" onmouseleave="this.style.background='rgba(239,68,68,0.08)'">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-              </svg>
-            </button>
+          <!-- Badges de estado -->
+          <div class="exec-matrix-badges">
+            <span class="exec-matrix-badge total">${total} casos</span>
+            ${pendientes > 0 ? `<span class="exec-matrix-badge pending">⏳ ${pendientes} pend.</span>` : ''}
+            ${cumple > 0 ? `<span class="exec-matrix-badge cumple">✓ ${cumple}</span>` : ''}
+            ${noCumple > 0 ? `<span class="exec-matrix-badge fail">✗ ${noCumple}</span>` : ''}
           </div>
         </div>
 
-        <!-- Tabla de casos del grupo (colapsable) -->
-        <div id="group-${gIdx}" style="overflow:hidden;">
-          <table class="exec-table" style="border-radius:0;border:none;">
-            <thead>
-              <tr>
-                <th class="exec-th">ID</th>
-                <th class="exec-th">Nombre del Caso</th>
-                <th class="exec-th">Tipo</th>
-                <th class="exec-th">Estado</th>
-                <th class="exec-th">Registrar Resultado</th>
-              </tr>
-            </thead>
-
-            <tbody>${rows}</tbody>
-          </table>
+        <!-- Flecha indicadora -->
+        <div class="exec-matrix-card-arrow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
         </div>
       </div>
     `;
   }).join('');
+}
+
+// ── Abrir detalle de una matriz específica ──
+let _execAllCasesCache = [];
+
+async function openExecMatrixDetail(encodedKey) {
+  const sessionKey = decodeURIComponent(encodedKey);
+
+  // Cargar todos los casos si no están en cache
+  if (_execAllCasesCache.length === 0) {
+    try {
+      const res = await fetch(`${API_BASE}/api/test-cases?project_name=${encodeURIComponent(currentProject)}`);
+      _execAllCasesCache = (await res.json()) || [];
+    } catch (e) {
+      showToast('Error cargando casos de la matriz', 'error');
+      return;
+    }
+  }
+
+  // Filtrar casos del grupo
+  const [module, datePrefix] = sessionKey.split('|||');
+  const groupCases = _execAllCasesCache.filter(tc =>
+    tc.module === module && (tc.created_at || '').slice(0, 16) === datePrefix
+  );
+
+  _execCurrentGroup = { module, created_at: datePrefix, cases: groupCases, sessionKey };
+
+  // Actualizar título y meta
+  const titleEl = document.getElementById('execDetailTitle');
+  const metaEl = document.getElementById('execDetailMeta');
+  if (titleEl) titleEl.textContent = `📋 ${module}`;
+  if (metaEl) {
+    let cleanDate = datePrefix;
+    try {
+      const iso = (typeof datePrefix === 'string' && !datePrefix.endsWith('Z') && !datePrefix.includes('+')) ? datePrefix + 'Z' : datePrefix;
+      cleanDate = new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch (_) {}
+    metaEl.textContent = `📅 ${cleanDate} · ${groupCases.length} casos`;
+  }
+
+  // Botón de descargar resultados
+  const exportBtn = document.getElementById('execDetailExportBtn');
+  if (exportBtn) {
+    exportBtn.onclick = () => exportGroupResults(module, datePrefix);
+  }
+
+  // Renderizar casos
+  renderExecDetailCases(groupCases);
+  updateExecDetailKpis(groupCases);
+
+  // Mostrar la vista de detalle
+  showExecDetailView();
+}
+
+function renderExecDetailCases(cases) {
+  const container = document.getElementById('execDetailCasesList');
+  if (!container) return;
+
+  if (!cases || cases.length === 0) {
+    container.innerHTML = '<div class="empty-state"><p>No hay casos en esta matriz.</p></div>';
+    return;
+  }
+
+  const rows = cases.map(tc => {
+    const isPending = !tc.result || tc.status === 'Pendiente';
+    const isCumple = tc.result === 'CUMPLE';
+    const badgeCls = isPending ? 'status-pending' : isCumple ? 'status-cumple' : 'status-nocumple';
+    const badgeLbl = isPending ? 'Pendiente' : tc.result;
+    return `
+      <tr class="exec-table-row" id="exec-row-${tc.db_id}">
+        <td class="exec-td exec-td-id"><span class="exec-case-id">${tc.case_id}</span></td>
+        <td class="exec-td exec-td-title"><div class="exec-title-cell">${tc.title}</div></td>
+        <td class="exec-td"><span class="tc-tag tag-type">${tc.test_type}</span></td>
+        <td class="exec-td exec-td-status"><span class="exec-status ${badgeCls}">${badgeLbl}</span></td>
+        <td class="exec-td exec-td-actions">
+          <button class="exec-btn-sm exec-btn-cumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10003; CUMPLE</button>
+          <button class="exec-btn-sm exec-btn-nocumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10007; NO CUMPLE</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="exec-table">
+      <thead>
+        <tr>
+          <th class="exec-th">ID</th>
+          <th class="exec-th">Nombre del Caso</th>
+          <th class="exec-th">Tipo</th>
+          <th class="exec-th">Estado</th>
+          <th class="exec-th">Registrar Resultado</th>
+        </tr>
+      </thead>
+      <tbody id="execDetailTableBody">${rows}</tbody>
+    </table>
+  `;
+}
+
+function updateExecDetailKpis(cases) {
+  const total = cases.length;
+  const cumple = cases.filter(c => c.result === 'CUMPLE').length;
+  const noCumple = cases.filter(c => c.result === 'NO CUMPLE').length;
+  const pending = cases.filter(c => !c.result || c.status === 'Pendiente').length;
+  const pct = total > 0 ? Math.round((cumple / total) * 100) : 0;
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('execDKpiTotal', total);
+  set('execDKpiCumple', cumple);
+  set('execDKpiFail', noCumple);
+  set('execDKpiPending', pending);
+  set('execDKpiPct', `${pct}%`);
+  const bar = document.getElementById('execDetailProgressBar');
+  if (bar) bar.style.width = `${pct}%`;
+}
+
+function filterExecDetailCases() {
+  if (!_execCurrentGroup) return;
+  const search = (document.getElementById('execDetailSearch')?.value || '').toLowerCase().trim();
+  const status = document.getElementById('execDetailStatusFilter')?.value || '';
+  const rows = document.querySelectorAll('#execDetailTableBody tr');
+
+  rows.forEach(r => {
+    const text = r.textContent.toLowerCase();
+    const matchesSearch = !search || text.includes(search);
+    const matchesStatus = !status || text.includes(status.toLowerCase());
+    r.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
+  });
+}
+
+function refreshExecDetail() {
+  if (!_execCurrentGroup) return;
+  _execAllCasesCache = [];
+  openExecMatrixDetail(encodeURIComponent(_execCurrentGroup.sessionKey));
+}
+
+function showExecMatrixListView() {
+  const list = document.getElementById('execMatrixListView');
+  const detail = document.getElementById('execDetailView');
+  if (list) list.classList.remove('hidden');
+  if (detail) detail.classList.add('hidden');
+}
+
+function showExecDetailView() {
+  const list = document.getElementById('execMatrixListView');
+  const detail = document.getElementById('execDetailView');
+  if (list) list.classList.add('hidden');
+  if (detail) detail.classList.remove('hidden');
+}
+
+function backToExecMatrices() {
+  _execCurrentGroup = null;
+  _execAllCasesCache = [];
+  showExecMatrixListView();
+  loadTestCasesForExecution();
 }
 
 async function syncAndRefresh() {
@@ -1075,7 +1431,7 @@ async function syncAndRefresh() {
         showToast(`Sincronizado: ${data.deleted_orphaned} caso${data.deleted_orphaned !== 1 ? 's' : ''} huérfano${data.deleted_orphaned !== 1 ? 's' : ''} eliminado${data.deleted_orphaned !== 1 ? 's' : ''}`, 'info');
       }
     }
-  } catch(e) { /* continuar aunque falle la sincronización */ }
+  } catch (e) { /* continuar aunque falle la sincronización */ }
   // Recargar la vista de ejecución
   loadTestCasesForExecution();
 }
@@ -1090,7 +1446,7 @@ async function clearAllCases() {
     const data = await res.json();
     showToast(`${data.deleted} caso${data.deleted !== 1 ? 's' : ''} eliminado${data.deleted !== 1 ? 's' : ''}`, 'success');
     loadTestCasesForExecution();
-  } catch(e) {
+  } catch (e) {
     showToast('Error: ' + e.message, 'error');
   }
 }
@@ -1130,7 +1486,7 @@ async function exportGroupResults(module, sessionPrefix) {
     const match = files.find(f => {
       const stem = f.filename.replace('.xlsx', '');
       return stem.toLowerCase().includes(cleanModule.toLowerCase()) ||
-             f.module.toLowerCase() === module.toLowerCase();
+        f.module.toLowerCase() === module.toLowerCase();
     });
 
     if (match) {
@@ -1146,7 +1502,7 @@ async function exportGroupResults(module, sessionPrefix) {
       const blob = await allRes.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `Resultados_${module}_${new Date().toLocaleDateString('es-CO').replace(/\//g,'-')}.xlsx`;
+      a.download = `Resultados_${module}_${new Date().toLocaleDateString('es-CO').replace(/\//g, '-')}.xlsx`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       showToast('Resultados exportados correctamente', 'success');
     }
@@ -1237,7 +1593,6 @@ function escapeStr(s) {
 // ════════════════════════════════════════════════════════════
 // BURBUJA FLOTANTE ASISTENTE IA
 // ════════════════════════════════════════════════════════════
-let chatDrawerOpen = false;
 
 function toggleChatDrawer() {
   const drawer = document.getElementById('chatDrawer');
@@ -1274,8 +1629,20 @@ function openExecutionModal(dbId, caseId, title) {
   currentExecutionCaseId = dbId;
   selectedResult = null;
 
-  document.getElementById('modalTestCaseTitle').textContent = title || 'Registrar Resultado';
-  document.getElementById('modalCaseId').textContent = caseId;
+  const headerEl = document.getElementById('modalTestCaseHeader');
+  const badgeEl = document.getElementById('modalCaseId');
+  const descEl = document.getElementById('modalTestCaseTitle');
+
+  if (dbId) {
+    if (headerEl) headerEl.textContent = 'Registrar Resultado de Prueba';
+    if (badgeEl) badgeEl.textContent = caseId || 'CASO DE PRUEBA';
+    if (descEl) descEl.textContent = title || 'Sin descripción detallada';
+  } else {
+    if (headerEl) headerEl.textContent = 'Resultado del Cronómetro';
+    if (badgeEl) badgeEl.textContent = caseId || '⏱ 00:00.0';
+    if (descEl) descEl.textContent = title || 'Caso de prueba cronometrado';
+  }
+
   document.getElementById('execNotes').value = '';
   document.getElementById('noCumpleFields').style.display = 'none';
   document.getElementById('saveExecutionBtn').disabled = true;
@@ -1290,6 +1657,26 @@ function closeExecutionModal() {
   document.getElementById('executionModal').classList.add('hidden');
   currentExecutionCaseId = null;
   selectedResult = null;
+
+  // Si se cancela el modal y había un cronómetro activo pausado, reanudarlo
+  if (_timerSessionId) {
+    _timerRunning = true;
+    const indicator = document.getElementById('timerStateIndicator');
+    const stateText = document.getElementById('timerStateText');
+    if (indicator) indicator.classList.add('running');
+    if (stateText) stateText.textContent = 'CORRIENDO';
+
+    clearInterval(_timerInterval);
+    _timerInterval = setInterval(() => {
+      _timerSeconds++;
+      const mins = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+      const secs = String(_timerSeconds % 60).padStart(2, '0');
+      const display = document.getElementById('timerDisplay');
+      if (display) display.textContent = `${mins}:${secs}.0`;
+    }, 1000);
+
+    fetch(`${API_BASE}/api/timer/resume?session_id=${encodeURIComponent(_timerSessionId)}`, { method: 'POST' }).catch(() => {});
+  }
 }
 
 function selectResult(result) {
@@ -1301,23 +1688,85 @@ function selectResult(result) {
 }
 
 async function saveExecution() {
-  if (!selectedResult || !currentExecutionCaseId) return;
+  if (!selectedResult) return;
 
   const saveBtn = document.getElementById('saveExecutionBtn');
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Guardando...';
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Guardando...';
+  }
+
+  const notes = document.getElementById('execNotes')?.value.trim() || null;
+  const severity = document.getElementById('execSeverity')?.value || 'Media';
+  const incidentType = document.getElementById('execIncidentType')?.value || 'Funcional';
+  const incidentState = document.getElementById('execIncidentState')?.value || 'Abierto';
+
+  // Si proviene del cronómetro activo
+  if (_timerSessionId) {
+    try {
+      const res = await fetch(`${API_BASE}/api/timer/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: _timerSessionId,
+          result: selectedResult,
+          notes: notes || 'Registrado desde el cronómetro',
+          severity: selectedResult === 'NO CUMPLE' ? severity : null,
+          incident_type: selectedResult === 'NO CUMPLE' ? incidentType : null,
+          incident_state: selectedResult === 'NO CUMPLE' ? incidentState : null,
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Error al registrar fin del cronómetro');
+      }
+
+      clearInterval(_timerInterval);
+      _timerRunning = false;
+      _timerSessionId = null;
+
+      const startBtn = document.getElementById('btnTimerStart');
+      const stopBtn = document.getElementById('btnTimerStop');
+      const indicator = document.getElementById('timerStateIndicator');
+      const stateText = document.getElementById('timerStateText');
+      const display = document.getElementById('timerDisplay');
+
+      if (startBtn) startBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
+      if (indicator) indicator.classList.remove('running');
+      if (stateText) stateText.textContent = 'LISTO';
+      if (display) display.textContent = '00:00.0';
+
+      showToast(`✓ Tiempo registrado: ${selectedResult}`, 'success');
+      closeExecutionModal();
+      await loadTimerStats();
+      loadDashboard();
+      if (_execCurrentGroup) refreshExecDetail();
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Guardar Resultado';
+      }
+    }
+    return;
+  }
+
+  // Registro de ejecución normal desde la tabla
+  if (!currentExecutionCaseId) return;
 
   const payload = {
     test_case_id: currentExecutionCaseId,
     result: selectedResult,
-    notes: document.getElementById('execNotes').value.trim() || null,
+    notes: notes,
     tester_name: null,
   };
 
   if (selectedResult === 'NO CUMPLE') {
-    payload.severity = document.getElementById('execSeverity').value;
-    payload.incident_type = document.getElementById('execIncidentType').value;
-    payload.incident_state = document.getElementById('execIncidentState').value;
+    payload.severity = severity;
+    payload.incident_type = incidentType;
+    payload.incident_state = incidentState;
   }
 
   try {
@@ -1332,25 +1781,44 @@ async function saveExecution() {
 
     showToast(`${selectedResult === 'CUMPLE' ? '✅' : '❌'} Resultado registrado: ${selectedResult}`, selectedResult === 'CUMPLE' ? 'success' : 'error');
     closeExecutionModal();
-    loadTestCasesForExecution();
+    if (_execCurrentGroup) {
+      refreshExecDetail();
+    } else {
+      loadTestCasesForExecution();
+    }
     loadDashboard();
 
   } catch (e) {
     showToast('Error: ' + e.message, 'error');
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Guardar Resultado';
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Guardar Resultado';
+    }
   }
 }
 
 // Cerrar modal al hacer clic fuera
-document.getElementById('executionModal').addEventListener('click', function(e) {
-  if (e.target === this) closeExecutionModal();
-});
+const _execModal = document.getElementById('executionModal');
+if (_execModal) {
+  _execModal.addEventListener('click', function (e) {
+    if (e.target === this) closeExecutionModal();
+  });
+}
 
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 4 — BASE DE CONOCIMIENTO
 // ══════════════════════════════════════════════════════════════
+function setDocCategory(categoryVal) {
+  const pills = document.querySelectorAll('.kb-cat-pill');
+  pills.forEach(p => p.classList.remove('active'));
+  const targetRadio = document.querySelector(`input[name="category"][value="${categoryVal}"]`);
+  if (targetRadio) {
+    targetRadio.checked = true;
+    targetRadio.closest('.kb-cat-pill')?.classList.add('active');
+  }
+}
+
 function setupDragDrop() {
   const zone = document.getElementById('uploadZone');
   if (!zone) return;
@@ -1375,8 +1843,6 @@ function setupDragDrop() {
   });
 }
 
-let activeIndexingFile = null;
-
 async function uploadDocument(file) {
   if (!file) return;
 
@@ -1392,39 +1858,47 @@ async function uploadDocument(file) {
 
   showToast(`🚀 Subiendo "${file.name}"...`, 'info');
 
-  // Renderizar la tarjeta animada de procesamiento de inmediato
+  // Insertar la card de indexación al INICIO del grid (sin borrar los docs existentes)
   if (grid) {
-    grid.innerHTML = `
-      <div class="doc-card indexing-card" style="
-        grid-column: 1 / -1;
-        background: rgba(99, 102, 241, 0.08);
-        border: 2px dashed var(--accent-primary);
-        border-radius: var(--radius-md);
-        padding: 1.25rem 1.5rem;
-        display: flex;
-        align-items: center;
-        gap: 1.25rem;
-        animation: pulseBorder 2s infinite ease-in-out;
-      ">
-        <div style="
-          width: 36px; height: 36px;
-          border: 3px solid rgba(99, 102, 241, 0.2);
-          border-top-color: var(--accent-primary);
-          border-radius: 50%;
-          animation: spin 0.8s linear infinite;
-          flex-shrink: 0;
-        "></div>
-        <div style="flex:1;">
-          <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
-            <span>⚡ Indexando documento en la IA:</span>
-            <strong style="color: var(--accent-primary);">${file.name}</strong>
-          </div>
-          <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.25rem;">
-            Extrayendo contenido, fragmentando en bloques y generando embeddings vectoriales en ChromaDB... Por favor espera un momento.
-          </div>
+    const indexingCard = document.createElement('div');
+    indexingCard.id = 'activeIndexingCard';
+    indexingCard.className = 'doc-card indexing-card';
+    indexingCard.style.cssText = `
+      grid-column: 1 / -1;
+      background: rgba(99, 102, 241, 0.08);
+      border: 2px dashed var(--accent-primary);
+      border-radius: var(--radius-md);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      animation: pulseBorder 2s infinite ease-in-out;
+    `;
+    indexingCard.innerHTML = `
+      <div style="
+        width: 36px; height: 36px;
+        border: 3px solid rgba(99, 102, 241, 0.2);
+        border-top-color: var(--accent-primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        flex-shrink: 0;
+      "></div>
+      <div style="flex:1;">
+        <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+          <span>⚡ Indexando documento en la IA:</span>
+          <strong style="color: var(--accent-primary);">${file.name}</strong>
+        </div>
+        <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.25rem;">
+          Extrayendo contenido, fragmentando en bloques y generando embeddings vectoriales en ChromaDB... Por favor espera un momento.
         </div>
       </div>
     `;
+    // Insertar al principio sin eliminar el contenido existente
+    const emptyState = grid.querySelector('.empty-state');
+    if (emptyState) {
+      grid.innerHTML = '';
+    }
+    grid.insertBefore(indexingCard, grid.firstChild);
   }
 
   try {
@@ -1460,11 +1934,14 @@ async function pollIndexingCompletion(filename) {
     try {
       const res = await fetch(`${API_BASE}/api/documents?project=${encodeURIComponent(currentProject)}`);
       const docs = await res.json();
-      
+
       const doc = docs.find(d => d.filename === filename && d.chunks > 0);
       if (doc) {
         clearInterval(interval);
         activeIndexingFile = null;
+        // Quitar la card de carga antes de recargar la lista
+        const card = document.getElementById('activeIndexingCard');
+        if (card) card.remove();
         showToast(`✅ "${filename}" indexado exitosamente (${doc.chunks} fragmentos).`, 'success');
         loadDocuments();
         loadDocumentsForGenerator();
@@ -1490,91 +1967,129 @@ async function loadDocuments() {
     const res = await fetch(`${API_BASE}/api/documents?project=${encodeURIComponent(currentProject)}`);
     const docs = await res.json();
 
-    const categoryLabels = { mtr: 'MTR', requirements: 'Reqs', templates: 'Plantillas' };
+    const categoryLabels = { mtr: 'MTR', requirements: 'Requerimientos', templates: 'Plantillas' };
+    const catBadgeClass = { mtr: 'doc-badge-mtr', requirements: 'doc-badge-req', templates: 'doc-badge-templates' };
 
-    let indexingCardHtml = '';
+    let indexingRowHtml = '';
     if (activeIndexingFile) {
-      indexingCardHtml = `
-        <div class="doc-card indexing-card" style="
-          grid-column: 1 / -1;
-          background: rgba(99, 102, 241, 0.08);
-          border: 2px dashed var(--accent-primary);
-          border-radius: var(--radius-md);
-          padding: 1.25rem 1.5rem;
-          display: flex;
-          align-items: center;
-          gap: 1.25rem;
-          animation: pulseBorder 2s infinite ease-in-out;
-        ">
-          <div style="
-            width: 36px; height: 36px;
-            border: 3px solid rgba(99, 102, 241, 0.2);
-            border-top-color: var(--accent-primary);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            flex-shrink: 0;
-          "></div>
-          <div style="flex:1;">
-            <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
-              <span>⚡ Indexando en la IA:</span>
-              <strong style="color: var(--accent-primary);">${activeIndexingFile}</strong>
+      indexingRowHtml = `
+        <tr id="activeIndexingRow" style="background: rgba(0, 156, 166, 0.08); border-left: 3px solid var(--accent-primary);">
+          <td colspan="7" style="padding: 1rem 1.25rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <div style="
+                width: 28px; height: 28px;
+                border: 3px solid rgba(0, 156, 166, 0.2);
+                border-top-color: var(--accent-primary);
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+                flex-shrink: 0;
+              "></div>
+              <div style="flex: 1;">
+                <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-primary);">
+                  ⚡ Indexando en la IA: <strong style="color: var(--accent-primary);">${activeIndexingFile}</strong>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                  Extrayendo texto, fragmentando y generando embeddings vectoriales en ChromaDB...
+                </div>
+              </div>
             </div>
-            <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.25rem;">
-              Extrayendo contenido, fragmentando en bloques y generando embeddings vectoriales en ChromaDB... Por favor espera un momento.
-            </div>
-          </div>
-        </div>
+          </td>
+        </tr>
       `;
+    }
+
+    const projTitle = document.getElementById('kbActiveProjectTitle');
+    if (projTitle) projTitle.textContent = currentProject || 'Proyectos';
+
+    const docsCountEl = document.getElementById('kbStatDocsCount');
+    const chunksCountEl = document.getElementById('kbStatChunksCount');
+    if (docsCountEl) docsCountEl.textContent = (docs && docs.length) ? docs.length : 0;
+    if (chunksCountEl) {
+      const totalChunks = (docs || []).reduce((acc, d) => acc + (parseInt(d.chunks, 10) || 0), 0);
+      chunksCountEl.textContent = totalChunks;
     }
 
     if (!docs || docs.length === 0) {
       if (activeIndexingFile) {
-        grid.innerHTML = indexingCardHtml;
+        grid.innerHTML = indexingRowHtml;
       } else {
         grid.innerHTML = `
-          <div class="empty-state" style="grid-column:1/-1">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
-            <p>No hay documentos indexados</p>
-            <span>Sube tus MTR, requerimientos o plantillas para comenzar</span>
-          </div>
+          <tr>
+            <td colspan="7">
+              <div class="kb-empty-state">
+                <div class="kb-empty-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+                <p class="kb-empty-title">No hay documentos indexados</p>
+                <span class="kb-empty-sub">Sube tus archivos MTR, requerimientos o plantillas para comenzar</span>
+              </div>
+            </td>
+          </tr>
         `;
       }
       return;
     }
 
-    grid.innerHTML = indexingCardHtml + docs.map(doc => `
-      <div class="doc-card">
-        <div class="doc-header">
-          <div class="doc-icon">${(doc.filename.split('.').pop() || 'DOC').toUpperCase().slice(0,3)}</div>
-          <div class="doc-info">
-            <div class="doc-name" title="${doc.filename}">${doc.filename}</div>
-            <div class="doc-meta">${doc.size_kb} KB • ${categoryLabels[doc.category] || doc.category}</div>
-            <div class="doc-chunks">${doc.chunks} fragmentos indexados</div>
-          </div>
-          <div class="doc-actions" style="display:flex;gap:4px;align-self:flex-start">
-            <button class="doc-edit" onclick="openEditDocModal('${doc.id}', '${escapeStr(doc.filename)}', '${doc.category}')" title="Editar" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:4px;border-radius:var(--radius-sm);transition:var(--transition)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
-              </svg>
-            </button>
-            <button class="doc-delete" onclick="deleteDocument('${doc.id}', '${escapeStr(doc.filename)}')" title="Eliminar" style="background:none;border:none;color:var(--accent-danger);cursor:pointer;padding:4px;border-radius:var(--radius-sm);transition:var(--transition)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div style="font-size:0.65rem;color:var(--text-muted)">
-          ${new Date(doc.uploaded_at).toLocaleDateString('es-CO', { day:'2-digit', month:'short', year:'numeric' })}
-        </div>
-      </div>
-    `).join('');
+    grid.innerHTML = indexingRowHtml + docs.map(doc => {
+      const ext = (doc.filename.split('.').pop() || 'DOC').toUpperCase();
+      let fileTypeStyle = 'background:rgba(0,156,166,0.12);color:var(--accent-primary);';
+      if (ext === 'PDF') {
+        fileTypeStyle = 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.25);';
+      } else if (ext === 'DOC' || ext === 'DOCX') {
+        fileTypeStyle = 'background:rgba(37,99,235,0.15);color:#2563eb;border:1px solid rgba(37,99,235,0.25);';
+      } else if (ext === 'XLS' || ext === 'XLSX') {
+        fileTypeStyle = 'background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.25);';
+      }
+
+      const catClass = catBadgeClass[doc.category] || 'doc-badge-req';
+      const catLabel = categoryLabels[doc.category] || doc.category;
+      const uploadDate = doc.uploaded_at
+        ? new Date(doc.uploaded_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+        : 'Reciente';
+
+      return `
+        <tr data-category="${doc.category || ''}">
+          <td style="width:40px;">
+            <span class="kb-file-type" style="${fileTypeStyle}">${ext.slice(0, 4)}</span>
+          </td>
+          <td>
+            <span class="doc-filename" title="${doc.filename}">${doc.filename}</span>
+          </td>
+          <td>
+            <span class="doc-badge ${catClass}">${catLabel}</span>
+          </td>
+          <td style="color:var(--text-muted);font-size:0.75rem;">
+            ${doc.size_kb || 0} KB
+          </td>
+          <td>
+            <span class="doc-chunks-pill">+ ${doc.chunks || 0}</span>
+          </td>
+          <td style="color:var(--text-muted);font-size:0.72rem;white-space:nowrap;">
+            ${uploadDate}
+          </td>
+          <td style="width:70px;">
+            <div class="doc-actions">
+              <button class="doc-action-btn" onclick="openEditDocModal('${doc.id}', '${escapeStr(doc.filename)}', '${doc.category}')" title="Editar categoría">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
+                </svg>
+              </button>
+              <button class="doc-action-btn delete-btn" onclick="deleteDocument('${doc.id}', '${escapeStr(doc.filename)}')" title="Eliminar de la base de conocimiento">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                </svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
 
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><p>Error: ${e.message}</p></div>`;
+    grid.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--accent-danger);">Error al cargar documentos: ${e.message}</td></tr>`;
   }
 }
 
@@ -1632,196 +2147,724 @@ async function saveEditDoc() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// MÓDULO 5 — DASHBOARD
+// MÓDULO 5 — DASHBOARD PRO ANALYTICS
 // ══════════════════════════════════════════════════════════════
 async function loadDashboard() {
-  // Mostrar nombre del proyecto
   const projNameEl = document.getElementById('dashProjectName');
-  if (projNameEl) projNameEl.textContent = currentProject || '—';
+  if (projNameEl) projNameEl.textContent = currentProject || 'Proyectos';
 
   const metricsGrid = document.getElementById('metricsGrid');
-  const progressSection = document.getElementById('dashProgressSection');
   const typeDiv = document.getElementById('typeDistribution');
   const sevDiv = document.getElementById('severityDistribution');
+  const chartContainer = document.getElementById('dashMainChartContainer');
 
-  // Skeleton loader en KPIs
-  if (metricsGrid) metricsGrid.innerHTML = [
-    { label: 'Total Casos', color: 'rgba(0,156,166,0.12)', border: 'rgba(0,156,166,0.3)', icon: '📋' },
-    { label: 'CUMPLE', color: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)', icon: '✅' },
-    { label: 'NO CUMPLE', color: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)', icon: '❌' },
-    { label: 'Tasa de Éxito', color: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.3)', icon: '🎯' },
-  ].map(k => `
-    <div style="background:${k.color};border:1px solid ${k.border};border-radius:var(--radius-md);padding:1.25rem;display:flex;flex-direction:column;gap:0.5rem;position:relative;overflow:hidden;">
-      <div style="font-size:1.4rem;">${k.icon}</div>
-      <div style="font-size:2rem;font-weight:800;color:var(--text-primary);line-height:1;">—</div>
-      <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">${k.label}</div>
-    </div>
-  `).join('');
+  // 1. Skeleton loader en KPIs (5 tarjetas)
+  if (metricsGrid) {
+    metricsGrid.innerHTML = [
+      { label: 'Total Casos', color: 'rgba(0,156,166,0.12)', border: 'rgba(0,156,166,0.3)', icon: '📋' },
+      { label: 'CUMPLE', color: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)', icon: '✅' },
+      { label: 'NO CUMPLE', color: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)', icon: '❌' },
+      { label: 'PENDIENTES', color: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)', icon: '⏳' },
+      { label: 'Tasa de Éxito', color: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.3)', icon: '🎯' },
+    ].map(k => `
+      <div style="background:${k.color};border:1px solid ${k.border};border-radius:var(--radius-md);padding:1.1rem;display:flex;flex-direction:column;gap:0.4rem;">
+        <div style="font-size:1.2rem;">${k.icon}</div>
+        <div style="font-size:1.8rem;font-weight:800;color:var(--text-primary);line-height:1;">—</div>
+        <div style="font-size:0.7rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;">${k.label}</div>
+      </div>
+    `).join('');
+  }
 
   try {
-    const res = await fetch(`${API_BASE}/api/execution/metrics?project_name=${encodeURIComponent(currentProject)}`);
-    const data = await res.json();
+    // 2. Cargar métricas y casos del proyecto
+    const [metricsRes, casesRes, docsRes] = await Promise.all([
+      fetch(`${API_BASE}/api/execution/metrics?project_name=${encodeURIComponent(currentProject)}`).then(r => r.json()).catch(() => ({})),
+      fetch(`${API_BASE}/api/test-cases?project_name=${encodeURIComponent(currentProject)}`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/documents?project=${encodeURIComponent(currentProject)}`).then(r => r.json()).catch(() => [])
+    ]);
 
-    const total = data.total_cases ?? 0;
-    const cumple = data.cumple ?? 0;
-    const noCumple = data.no_cumple ?? 0;
-    const passRate = data.pass_rate ?? 0;
-    const execRate = data.execution_rate ?? 0;
-    const pendiente = total - cumple - noCumple;
+    _dashAllCases = Array.isArray(casesRes) ? casesRes : [];
 
-    // ── KPI Cards Premium ──────────────────────────────────────────
-    const kpis = [
-      {
-        value: total, label: 'Total Casos', sub: 'Generados en el proyecto',
-        color: 'rgba(0,156,166,0.12)', border: 'rgba(0,156,166,0.3)',
-        textColor: 'var(--accent-primary)',
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-        </svg>`
-      },
-      {
-        value: cumple, label: 'CUMPLE', sub: `${total > 0 ? Math.round(cumple/total*100) : 0}% de los casos`,
-        color: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)',
-        textColor: '#10b981',
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="22" height="22">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>`
-      },
-      {
-        value: noCumple, label: 'NO CUMPLE', sub: `${total > 0 ? Math.round(noCumple/total*100) : 0}% de los casos`,
-        color: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)',
-        textColor: '#ef4444',
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="22" height="22">
-          <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-        </svg>`
-      },
-      {
-        value: `${passRate}%`, label: 'Tasa de Éxito', sub: `Cobertura: ${execRate}% ejecutado`,
-        color: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.3)',
-        textColor: '#8b5cf6',
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
-          <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-        </svg>`
-      },
-    ];
-
-    if (metricsGrid) {
-      metricsGrid.innerHTML = kpis.map(k => `
-        <div style="background:${k.color};border:1px solid ${k.border};border-radius:var(--radius-md);
-          padding:1.25rem 1.4rem;display:flex;flex-direction:column;gap:0.4rem;
-          position:relative;overflow:hidden;transition:var(--transition);"
-          onmouseenter="this.style.transform='translateY(-2px)'"
-          onmouseleave="this.style.transform='translateY(0)'">
-          <!-- Icono de fondo decorativo -->
-          <div style="position:absolute;right:1rem;top:50%;transform:translateY(-50%);opacity:0.08;color:${k.textColor};">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="52" height="52" style="fill:currentColor;">${k.icon}</svg>
-          </div>
-          <!-- Contenido -->
-          <div style="color:${k.textColor};display:flex;align-items:center;gap:0.4rem;">${k.icon}</div>
-          <div style="font-size:2.2rem;font-weight:800;color:${k.textColor};line-height:1.1;letter-spacing:-0.02em;">${k.value}</div>
-          <div style="font-size:0.8rem;font-weight:700;color:var(--text-primary);text-transform:uppercase;letter-spacing:0.05em;">${k.label}</div>
-          <div style="font-size:0.68rem;color:var(--text-muted);">${k.sub}</div>
-        </div>
-      `).join('');
+    // Poblar selector de documentos en filtros del dashboard
+    const docSelect = document.getElementById('dashFilterDoc');
+    if (docSelect && Array.isArray(docsRes)) {
+      const currentVal = docSelect.value;
+      docSelect.innerHTML = '<option value="">Todos los documentos</option>' +
+        docsRes.map(d => `<option value="${escapeStr(d.filename)}" ${d.filename === currentVal ? 'selected' : ''}>${d.filename}</option>`).join('');
     }
 
-    // ── Barra de progreso global ──────────────────────────────────
-    if (progressSection) {
-      progressSection.innerHTML = `
-        <div style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:1.25rem 1.5rem;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.875rem;">
-            <div>
-              <div style="font-weight:700;font-size:0.875rem;color:var(--text-primary);">Progreso de Ejecución Global</div>
-              <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem;">${pendiente} pendientes · ${cumple + noCumple} ejecutados de ${total}</div>
-            </div>
-            <div style="font-size:1.5rem;font-weight:800;background:var(--gradient-main);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">${execRate}%</div>
-          </div>
-          <div style="height:10px;background:var(--border-subtle);border-radius:5px;overflow:hidden;position:relative;">
-            <div style="height:100%;width:0%;background:var(--gradient-main);border-radius:5px;transition:width 1s cubic-bezier(0.4,0,0.2,1);" id="dashExecBar"></div>
-          </div>
-          <div style="display:flex;gap:1.5rem;margin-top:0.75rem;">
-            <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;color:var(--text-muted);">
-              <div style="width:10px;height:10px;border-radius:50%;background:#10b981;"></div>
-              <span>CUMPLE: <strong style="color:var(--text-primary);">${cumple}</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;color:var(--text-muted);">
-              <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;"></div>
-              <span>NO CUMPLE: <strong style="color:var(--text-primary);">${noCumple}</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;color:var(--text-muted);">
-              <div style="width:10px;height:10px;border-radius:50%;background:var(--border-subtle);border:1px solid var(--text-muted);"></div>
-              <span>Pendiente: <strong style="color:var(--text-primary);">${pendiente}</strong></span>
-            </div>
-          </div>
-        </div>
-      `;
-      setTimeout(() => {
-        const bar = document.getElementById('dashExecBar');
-        if (bar) bar.style.width = `${execRate}%`;
-      }, 150);
-    }
-
-    // ── Distribución por tipo ─────────────────────────────────────
-    const maxType = Math.max(...Object.values(data.by_type || {}), 1);
-    const typeColors = {
-      'FUNCIONALES': '#009ca6', 'CASOS NEGATIVOS': '#f59e0b',
-      'SEGURIDAD': '#ef4444', 'INTEGRACION': '#8b5cf6',
-      'NO FUNCIONALES': '#22d3ee', 'CARGA': '#10b981',
-      'ESTRESS': '#f97316', 'COMPATIBILIDAD': '#ec4899', 'RESILIENCIA': '#6366f1'
-    };
-    if (typeDiv) {
-      typeDiv.innerHTML = Object.keys(data.by_type || {}).length === 0
-        ? '<p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:1rem 0;">Sin datos todavía</p>'
-        : Object.entries(data.by_type).sort(([,a],[,b]) => b - a).map(([type, count]) => {
-          const pct = Math.round(count / maxType * 100);
-          const color = typeColors[type] || 'var(--accent-primary)';
-          return `
-            <div style="margin-bottom:0.75rem;">
-              <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;align-items:center;">
-                <span style="font-size:0.78rem;font-weight:600;color:var(--text-primary);">${type}</span>
-                <span style="font-size:0.75rem;font-weight:700;color:${color};">${count}</span>
-              </div>
-              <div style="height:7px;background:var(--border-subtle);border-radius:4px;overflow:hidden;">
-                <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width 0.8s ease;"></div>
-              </div>
-            </div>
-          `;
-        }).join('');
-    }
-
-    // ── Defectos por severidad ────────────────────────────────────
-    const sevColors = {
-      'Bloqueante': '#ef4444', 'Crítico': '#f59e0b',
-      'Tolerable': '#10b981', 'Interfaz de usuario': '#22d3ee'
-    };
-    const maxSev = Math.max(...Object.values(data.by_severity || {}), 1);
-    if (sevDiv) {
-      sevDiv.innerHTML = Object.keys(data.by_severity || {}).length === 0
-        ? '<p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:1rem 0;">Sin defectos registrados ✓</p>'
-        : Object.entries(data.by_severity).sort(([,a],[,b]) => b - a).map(([sev, count]) => {
-          const pct = Math.round(count / maxSev * 100);
-          const color = sevColors[sev] || 'var(--accent-primary)';
-          return `
-            <div style="margin-bottom:0.75rem;">
-              <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;align-items:center;">
-                <div style="display:flex;align-items:center;gap:0.4rem;">
-                  <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></div>
-                  <span style="font-size:0.78rem;font-weight:600;color:var(--text-primary);">${sev}</span>
-                </div>
-                <span style="font-size:0.75rem;font-weight:700;color:${color};">${count}</span>
-              </div>
-              <div style="height:7px;background:var(--border-subtle);border-radius:4px;overflow:hidden;">
-                <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width 0.8s ease;"></div>
-              </div>
-            </div>
-          `;
-        }).join('');
-    }
+    renderDashboardWithData(metricsRes, _dashAllCases);
 
   } catch (e) {
     console.warn('Error cargando dashboard:', e.message);
     if (metricsGrid) metricsGrid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:2rem;">Error al cargar métricas: ${e.message}</div>`;
+  }
+}
+
+function renderDashboardWithData(metrics, cases) {
+  const metricsGrid = document.getElementById('metricsGrid');
+  const typeDiv = document.getElementById('typeDistribution');
+  const sevDiv = document.getElementById('severityDistribution');
+  const chartContainer = document.getElementById('dashMainChartContainer');
+
+  const total = cases.length || metrics.total_cases || 0;
+  const cumple = cases.filter(c => c.result === 'CUMPLE').length || metrics.cumple || 0;
+  const noCumple = cases.filter(c => c.result === 'NO CUMPLE').length || metrics.no_cumple || 0;
+  const ejecutados = cumple + noCumple;
+  const pendiente = total - ejecutados;
+  const passRate = ejecutados > 0 ? Math.round((cumple / ejecutados) * 100) : (metrics.pass_rate || 0);
+  const execRate = total > 0 ? Math.round((ejecutados / total) * 100) : (metrics.execution_rate || 0);
+
+  // ── 1. 5 KPI Cards ──────────────────────────────────────────
+  const kpis = [
+    {
+      value: total, label: 'Total Casos', sub: 'Catalogados en el proyecto',
+      color: 'rgba(0,156,166,0.12)', border: 'rgba(0,156,166,0.3)',
+      textColor: 'var(--accent-primary)',
+      badge: '100%', badgeColor: 'rgba(0,156,166,0.2)', badgeText: 'var(--accent-primary)',
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`
+    },
+    {
+      value: cumple, label: 'CUMPLE (PASS)', sub: `${total > 0 ? Math.round(cumple / total * 100) : 0}% del total general`,
+      color: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)',
+      textColor: '#10b981',
+      badge: `+${cumple}`, badgeColor: 'rgba(16,185,129,0.15)', badgeText: '#10b981',
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><polyline points="20 6 9 17 4 12"/></svg>`
+    },
+    {
+      value: noCumple, label: 'NO CUMPLE (DEFECTOS)', sub: `${total > 0 ? Math.round(noCumple / total * 100) : 0}% de incidencia`,
+      color: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)',
+      textColor: '#ef4444',
+      badge: noCumple > 0 ? `${noCumple} Fallos` : '0 Fallos', badgeColor: 'rgba(239,68,68,0.15)', badgeText: '#ef4444',
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`
+    },
+    {
+      value: pendiente, label: 'PENDIENTES', sub: 'Por registrar resultado',
+      color: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)',
+      textColor: '#f59e0b',
+      badge: pendiente > 0 ? `${pendiente} Restantes` : 'Completo', badgeColor: 'rgba(245,158,11,0.15)', badgeText: '#f59e0b',
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
+    },
+    {
+      value: `${passRate}%`, label: 'TASA DE ÉXITO', sub: `Ejecución: ${execRate}% de casos`,
+      color: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.3)',
+      textColor: '#8b5cf6',
+      badge: 'En curso', badgeColor: 'rgba(139,92,246,0.15)', badgeText: '#8b5cf6',
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`
+    },
+  ];
+
+  if (metricsGrid) {
+    metricsGrid.innerHTML = kpis.map(k => `
+      <div class="dash-spark-card" style="background:${k.color};border:1px solid ${k.border};">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.15rem;">
+          <span style="font-size:0.65rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">${k.label}</span>
+          <span style="font-size:0.55rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:4px;background:${k.badgeColor};color:${k.badgeText};">${k.badge}</span>
+        </div>
+        <div style="font-size:1.9rem;font-weight:800;color:${k.textColor};line-height:1.1;letter-spacing:-0.02em;">${k.value}</div>
+        <div style="font-size:0.62rem;color:var(--text-muted);margin-bottom:0.3rem;">${k.sub}</div>
+        <svg viewBox="0 0 80 20" width="100%" height="20" style="overflow:visible;opacity:0.75;">
+          <polyline points="0,16 14,12 28,14 42,8 56,10 70,5 80,6" fill="none" stroke="${k.textColor}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="80" cy="6" r="2.5" fill="${k.textColor}"/>
+        </svg>
+      </div>
+    `).join('');
+  }
+
+  // ── 2. Widget Principal: Avance y Cobertura por Módulo ────
+  if (chartContainer) {
+    // Agrupar por módulo
+    const modMap = {};
+    cases.forEach(c => {
+      const m = c.module || 'General';
+      if (!modMap[m]) modMap[m] = { total: 0, cumple: 0, noCumple: 0, pendientes: 0 };
+      modMap[m].total++;
+      if (c.result === 'CUMPLE') modMap[m].cumple++;
+      else if (c.result === 'NO CUMPLE') modMap[m].noCumple++;
+      else modMap[m].pendientes++;
+    });
+
+    const modEntries = Object.entries(modMap);
+
+    if (modEntries.length === 0) {
+      chartContainer.innerHTML = `
+        <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.8rem;">
+          No hay casos generados en este proyecto aún.
+        </div>
+      `;
+    } else {
+      chartContainer.innerHTML = `
+        <div class="dash-coverage-container">
+          <!-- Barra Global de Proyecto -->
+          <div class="dash-global-bar-wrap">
+            <div class="dash-global-bar-labels">
+              <span class="dash-global-title">Progreso Global del Plan de Pruebas (${total} Casos Totales)</span>
+              <span class="dash-global-stat"><strong>${cumple + noCumple}</strong> de ${total} ejecutados (${total > 0 ? Math.round(((cumple + noCumple) / total) * 100) : 0}%)</span>
+            </div>
+            <div class="dash-segmented-bar large">
+              <div class="dash-seg-cumple" style="width: ${total > 0 ? (cumple / total) * 100 : 0}%;" title="CUMPLE: ${cumple}"></div>
+              <div class="dash-seg-nocumple" style="width: ${total > 0 ? (noCumple / total) * 100 : 0}%;" title="NO CUMPLE: ${noCumple}"></div>
+              <div class="dash-seg-pend" style="width: ${total > 0 ? (pendiente / total) * 100 : 0}%;" title="Pendientes: ${pendiente}"></div>
+            </div>
+          </div>
+
+          <!-- Listado de Módulos / Funcionalidades -->
+          <div class="dash-modules-breakdown-list">
+            ${modEntries.map(([modName, stats]) => {
+              const execCount = stats.cumple + stats.noCumple;
+              const execPct = stats.total > 0 ? Math.round((execCount / stats.total) * 100) : 0;
+              const cumpleW = stats.total > 0 ? (stats.cumple / stats.total) * 100 : 0;
+              const noCumpleW = stats.total > 0 ? (stats.noCumple / stats.total) * 100 : 0;
+              const pendW = stats.total > 0 ? (stats.pendientes / stats.total) * 100 : 0;
+
+              return `
+                <div class="dash-module-coverage-row">
+                  <div class="dash-mod-header">
+                    <div class="dash-mod-name-group">
+                      <span class="dash-mod-icon">📋</span>
+                      <strong class="dash-mod-title">${modName}</strong>
+                      <span class="dash-mod-total-badge">${stats.total} casos</span>
+                    </div>
+                    <div class="dash-mod-kpis">
+                      <span class="dash-mod-kpi-item cumple">✓ <strong>${stats.cumple}</strong> Pass</span>
+                      <span class="dash-mod-kpi-item nocumple">✕ <strong>${stats.noCumple}</strong> Fallas</span>
+                      <span class="dash-mod-kpi-item pend">⏳ <strong>${stats.pendientes}</strong> Pend.</span>
+                      <span class="dash-mod-rate-badge">${execPct}% Ejecutado</span>
+                    </div>
+                  </div>
+                  <div class="dash-segmented-bar">
+                    <div class="dash-seg-cumple" style="width: ${cumpleW}%;" title="CUMPLE: ${stats.cumple}"></div>
+                    <div class="dash-seg-nocumple" style="width: ${noCumpleW}%;" title="NO CUMPLE: ${stats.noCumple}"></div>
+                    <div class="dash-seg-pend" style="width: ${pendW}%;" title="Pendientes: ${stats.pendientes}"></div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // ── 3. Distribución por Tipo de Prueba (Histograma vertical) ──
+  const byType = {};
+  cases.forEach(c => {
+    const t = c.test_type || 'FUNCIONALES';
+    byType[t] = (byType[t] || 0) + 1;
+  });
+  if (Object.keys(byType).length === 0 && metrics.by_type) Object.assign(byType, metrics.by_type);
+
+  const typeEntries = Object.entries(byType).sort(([, a], [, b]) => b - a);
+  const typeBadge = document.getElementById('dashTypeBadge');
+  if (typeBadge) typeBadge.textContent = `${typeEntries.length} Tipos`;
+
+  const typeColors = {
+    'FUNCIONALES': '#00e5ff', 'CASOS NEGATIVOS': '#10b981', 'SEGURIDAD': '#f59e0b',
+    'NO FUNCIONALES': '#3b82f6', 'CARGA': '#6366f1', 'INTEGRACION': '#8b5cf6',
+    'ESTRESS': '#ec4899', 'COMPATIBILIDAD': '#14b8a6', 'RESILIENCIA': '#f97316'
+  };
+
+  const maxTypeCount = Math.max(...Object.values(byType), 1);
+
+  if (typeDiv) {
+    if (typeEntries.length === 0) {
+      typeDiv.innerHTML = '<p style="color:var(--text-muted);font-size:0.75rem;text-align:center;padding:1.5rem;">Sin datos de tipos</p>';
+    } else {
+      typeDiv.innerHTML = `
+        <div class="dash-barchart-container">
+          ${typeEntries.map(([type, count]) => {
+        const color = typeColors[type] || 'var(--accent-primary)';
+        const heightPct = Math.max(15, Math.round((count / maxTypeCount) * 100));
+        return `
+              <div class="dash-vbar-group">
+                <span class="dash-vbar-val" style="color:${color};">${count}</span>
+                <div class="dash-vbar-track">
+                  <div class="dash-vbar-fill" style="height:${heightPct}%;background:${color};"></div>
+                </div>
+                <span class="dash-vbar-label" title="${type}">${type}</span>
+              </div>
+            `;
+      }).join('')}
+        </div>
+      `;
+    }
+  }
+
+  // ── 4. Defectos por Nivel de Severidad (Barras horizontales) ──
+  const sevDef = [
+    { label: 'Bloqueante', color: '#ef4444', count: 0 },
+    { label: 'Crítico', color: '#f59e0b', count: 0 },
+    { label: 'Tolerable', color: '#10b981', count: 0 },
+    { label: 'Interfaz de usuario', color: '#00e5ff', count: 0 }
+  ];
+
+  cases.forEach(c => {
+    if (c.result === 'NO CUMPLE') {
+      const s = sevDef.find(item => item.label.toLowerCase() === (c.severity || '').toLowerCase());
+      if (s) s.count++;
+      else if (c.severity) sevDef[0].count++;
+    }
+  });
+
+  const totalDefects = sevDef.reduce((acc, curr) => acc + curr.count, 0) || metrics.no_cumple || 0;
+  const sevBadge = document.getElementById('dashSevBadge');
+  if (sevBadge) sevBadge.textContent = `${totalDefects} Defectos`;
+
+  const maxSev = Math.max(...sevDef.map(s => s.count), 1);
+
+  if (sevDiv) {
+    sevDiv.innerHTML = `
+      <div class="dash-severity-container">
+        ${sevDef.map(s => {
+      const widthPct = Math.max(s.count > 0 ? 10 : 0, Math.round((s.count / maxSev) * 100));
+      return `
+            <div class="dash-sev-row">
+              <div class="dash-sev-header">
+                <div class="dash-sev-name">
+                  <div class="dash-sev-dot" style="background:${s.color};"></div>
+                  <span>${s.label}</span>
+                </div>
+                <span class="dash-sev-count" style="color:${s.color};">${s.count}</span>
+              </div>
+              <div class="dash-sev-track">
+                <div class="dash-sev-fill" style="width:${widthPct}%;background:${s.color};"></div>
+              </div>
+            </div>
+          `;
+    }).join('')}
+      </div>
+    `;
+  }
+}
+
+// ── Filtros en tiempo real del Dashboard ────────────────────────
+function applyDashFilters() {
+  const search = (document.getElementById('dashFilterSearch')?.value || '').toLowerCase().trim();
+  const doc = document.getElementById('dashFilterDoc')?.value || '';
+  const type = document.getElementById('dashFilterType')?.value || '';
+  const sev = document.getElementById('dashFilterSev')?.value || '';
+  const result = document.getElementById('dashFilterResult')?.value || '';
+  const dateFrom = document.getElementById('dashFilterDateFrom')?.value || '';
+  const dateTo = document.getElementById('dashFilterDateTo')?.value || '';
+
+  const filtered = _dashAllCases.filter(c => {
+    if (search && !((c.title || '').toLowerCase().includes(search) || (c.case_id || '').toLowerCase().includes(search) || (c.module || '').toLowerCase().includes(search))) return false;
+    if (doc && c.source_document !== doc) return false;
+    if (type && c.test_type !== type) return false;
+    if (sev && c.severity !== sev) return false;
+    if (result && c.result !== result && (result !== 'Pendiente' || c.status === 'Ejecutado')) return false;
+    if (dateFrom && (c.created_at || '').slice(0, 10) < dateFrom) return false;
+    if (dateTo && (c.created_at || '').slice(0, 10) > dateTo) return false;
+    return true;
+  });
+
+  const countBadge = document.getElementById('dashFilterCount');
+  if (countBadge) {
+    countBadge.textContent = `${filtered.length} de ${_dashAllCases.length} casos`;
+  }
+
+  renderDashboardWithData({}, filtered);
+}
+
+function clearDashFilters() {
+  const s = document.getElementById('dashFilterSearch'); if (s) s.value = '';
+  const d = document.getElementById('dashFilterDoc'); if (d) d.value = '';
+  const t = document.getElementById('dashFilterType'); if (t) t.value = '';
+  const sv = document.getElementById('dashFilterSev'); if (sv) sv.value = '';
+  const r = document.getElementById('dashFilterResult'); if (r) r.value = '';
+  const df = document.getElementById('dashFilterDateFrom'); if (df) df.value = '';
+  const dt = document.getElementById('dashFilterDateTo'); if (dt) dt.value = '';
+  const count = document.getElementById('dashFilterCount'); if (count) count.textContent = '';
+  renderDashboardWithData({}, _dashAllCases);
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 4 — CRONÓMETRO Y TIEMPOS DE EJECUCIÓN
+// ══════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 4 — TIEMPOS DE EJECUCIÓN (CRONÓMETRO Y ANALÍTICAS HUD)
+// ══════════════════════════════════════════════════════════════
+let _timerAllCases = [];
+
+async function loadTimerModule() {
+  await Promise.all([
+    loadTimerMatrices(),
+    loadTimerStats()
+  ]);
+}
+
+async function loadTimerMatrices() {
+  const select = document.getElementById('timerMatrixSelect');
+  if (!select) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/test-cases/exports?project_name=${encodeURIComponent(currentProject)}`);
+    const files = await res.json();
+
+    select.innerHTML = '<option value="">-- Todas las matrices de prueba --</option>';
+    if (files && files.length > 0) {
+      files.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.filename;
+        opt.textContent = `📊 Matriz EOPA — ${f.module} (${f.filename})`;
+        select.appendChild(opt);
+      });
+    }
+
+    await onTimerMatrixSelected();
+  } catch (e) {
+    console.error('Error cargando matrices para el cronómetro:', e);
+  }
+}
+
+async function onTimerMatrixSelected() {
+  const matrixSelect = document.getElementById('timerMatrixSelect');
+  const caseSelect = document.getElementById('timerCaseSelect');
+  const countSpan = document.getElementById('timerAvailableCasesCount');
+  if (!caseSelect) return;
+
+  const selectedFile = matrixSelect ? matrixSelect.value : '';
+
+  try {
+    let url = `${API_BASE}/api/test-cases?project_name=${encodeURIComponent(currentProject)}`;
+    if (selectedFile) {
+      url += `&filename=${encodeURIComponent(selectedFile)}`;
+    }
+
+    const res = await fetch(url);
+    _timerAllCases = (await res.json()) || [];
+
+    if (countSpan) {
+      countSpan.textContent = `${_timerAllCases.length} casos disponibles`;
+    }
+
+    caseSelect.innerHTML = '<option value="">-- Selecciona un caso de prueba --</option>';
+    _timerAllCases.forEach(tc => {
+      const opt = document.createElement('option');
+      opt.value = tc.db_id || tc.id;
+      opt.textContent = `[${tc.case_id || 'TC'}] ${tc.title || 'Caso'} (${tc.test_type || 'General'})`;
+      caseSelect.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('Error cargando casos para el cronómetro:', e);
+  }
+}
+
+async function startTimer() {
+  const caseSelect = document.getElementById('timerCaseSelect');
+  const testerInput = document.getElementById('timerTesterInput');
+
+  if (!caseSelect || !caseSelect.value) {
+    showToast('Por favor selecciona un caso de prueba para cronometrar.', 'error');
+    return;
+  }
+
+  const tcId = caseSelect.value;
+  const testerName = testerInput ? testerInput.value.trim() : '';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/timer/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        test_case_id: tcId,
+        tester_name: testerName,
+        project_name: currentProject
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Error al iniciar cronómetro');
+
+    _timerSessionId = data.session_id;
+    _timerRunning = true;
+    _timerSeconds = 0;
+
+    const startBtn = document.getElementById('btnTimerStart');
+    const stopBtn = document.getElementById('btnTimerStop');
+    const indicator = document.getElementById('timerStateIndicator');
+    const stateText = document.getElementById('timerStateText');
+
+    if (startBtn) startBtn.disabled = true;
+    if (stopBtn) stopBtn.disabled = false;
+    if (indicator) indicator.classList.add('running');
+    if (stateText) stateText.textContent = 'CORRIENDO';
+
+    clearInterval(_timerInterval);
+    _timerInterval = setInterval(() => {
+      _timerSeconds++;
+      const mins = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+      const secs = String(_timerSeconds % 60).padStart(2, '0');
+      const display = document.getElementById('timerDisplay');
+      if (display) display.textContent = `${mins}:${secs}.0`;
+    }, 1000);
+
+    showToast('⏱ Cronómetro iniciado', 'info');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+function stopTimer() {
+  if (!_timerSessionId) return;
+
+  // 1. Congelar inmediatamente el reloj en pantalla
+  clearInterval(_timerInterval);
+  _timerRunning = false;
+
+  const indicator = document.getElementById('timerStateIndicator');
+  const stateText = document.getElementById('timerStateText');
+  if (indicator) indicator.classList.remove('running');
+  if (stateText) stateText.textContent = 'EN REVISIÓN';
+
+  // 2. Notificar al backend que pause el cronómetro
+  fetch(`${API_BASE}/api/timer/pause?session_id=${encodeURIComponent(_timerSessionId)}`, { method: 'POST' }).catch(() => {});
+
+  // 3. Abrir modal con el tiempo exacto congelado
+  const caseSelect = document.getElementById('timerCaseSelect');
+  const selectedText = caseSelect && caseSelect.selectedIndex >= 0 ? caseSelect.options[caseSelect.selectedIndex].text : 'Caso de prueba';
+  const mins = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+  const secs = String(_timerSeconds % 60).padStart(2, '0');
+  openExecutionModal(null, selectedText, `⏱ Tiempo Registrado: ${mins}:${secs}.0`);
+}
+
+async function loadTimerStats() {
+  const kpiCount = document.getElementById('timerKpiCount');
+  const kpiAvg = document.getElementById('timerKpiAvg');
+  const kpiTotal = document.getElementById('timerKpiTotal');
+  const kpiMin = document.getElementById('timerKpiMin');
+  const kpiMax = document.getElementById('timerKpiMax');
+  const barsContainer = document.getElementById('timerModuleBarsList');
+  const typeGrid = document.getElementById('timerTypeGrid');
+  const tbody = document.getElementById('timerHistoryBody');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/timer/stats?project_name=${encodeURIComponent(currentProject)}`);
+    const data = await res.json();
+
+    if (!data) return;
+
+    // 1. KPIs
+    if (kpiCount) kpiCount.textContent = data.total_executed || 0;
+    if (kpiAvg) kpiAvg.textContent = `${Math.round(data.avg_seconds || 0)}s`;
+    if (kpiTotal) {
+      const tot = Math.round(data.total_seconds || 0);
+      kpiTotal.textContent = tot >= 60 ? `${Math.floor(tot / 60)}m ${tot % 60}s` : `${tot}s`;
+    }
+    if (kpiMin) kpiMin.textContent = `${Math.round(data.min_seconds || 0)}s`;
+    if (kpiMax) kpiMax.textContent = `${Math.round(data.max_seconds || 0)}s`;
+
+    // 2. Barras por Módulo
+    if (barsContainer) {
+      const rfs = data.by_rf || [];
+      if (rfs.length === 0) {
+        barsContainer.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;">Ejecuta casos cronometrados para visualizar métricas por módulo.</div>';
+      } else {
+        const maxSecs = Math.max(...rfs.map(r => r.avg_seconds || r.total_seconds || 1), 1);
+        barsContainer.innerHTML = rfs.map(r => {
+          const avgSec = Math.round(r.avg_seconds || (r.count ? r.total_seconds / r.count : 0));
+          const pct = Math.min(Math.max((avgSec / maxSecs) * 100, 10), 100);
+          return `
+            <div class="timer-module-bar-item">
+              <div class="timer-bar-header">
+                <span class="timer-bar-module-name">${r.rf || r.module || 'General'}</span>
+                <span class="timer-bar-meta"><strong>${avgSec}s</strong> · ${r.count} caso(s)</span>
+              </div>
+              <div class="timer-bar-track">
+                <div class="timer-bar-fill" style="width: ${pct}%;"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // 3. Grid por Tipo de Prueba
+    if (typeGrid) {
+      const typeList = Array.isArray(data.by_type)
+        ? data.by_type
+        : Object.entries(data.by_type || {}).map(([k, v]) => ({
+            type: k,
+            count: v.count,
+            avg_seconds: v.avg_seconds || (v.count ? v.total_seconds / v.count : 0)
+          }));
+
+      if (typeList.length === 0) {
+        typeGrid.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;grid-column:1/-1;">Sin datos registrados aún.</div>';
+      } else {
+        typeGrid.innerHTML = typeList.map(tData => {
+          const avgSec = Math.round(tData.avg_seconds || (tData.count ? tData.total_seconds / tData.count : 0));
+          const typeName = tData.type || 'General';
+          return `
+            <div class="timer-type-box">
+              <div class="timer-type-lbl">${typeName}</div>
+              <div class="timer-type-val">${avgSec}s</div>
+              <div class="timer-type-count">${tData.count} caso(s)</div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // 4. Tabla de Historial
+    if (tbody) {
+      const history = data.history || [];
+      if (history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Sin sesiones registradas aún.</td></tr>';
+      } else {
+        tbody.innerHTML = history.map(s => {
+          const secs = Math.round(s.execution_time_seconds || 0);
+          const formattedTime = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+          const badgeCls = s.result === 'CUMPLE' ? 'status-cumple' : s.result === 'NO CUMPLE' ? 'status-nocumple' : 'status-pending';
+          const dateVal = s.executed_at || s.stopped_at || s.created_at;
+          let dateStr = '—';
+          if (dateVal) {
+            try {
+              const iso = (typeof dateVal === 'string' && !dateVal.endsWith('Z') && !dateVal.includes('+')) ? dateVal + 'Z' : dateVal;
+              dateStr = new Date(iso).toLocaleString('es-CO', {
+                hour12: true,
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+            } catch (_) {}
+          }
+
+          return `
+            <tr>
+              <td><strong style="color:var(--accent-secondary);">${s.case_id || '—'}</strong></td>
+              <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.title || 'Caso de prueba'}</td>
+              <td>${s.module || 'General'}</td>
+              <td><strong style="font-family:var(--font-hud);">${formattedTime}</strong></td>
+              <td><span class="exec-status ${badgeCls}">${s.result || 'Ejecutado'}</span></td>
+              <td style="font-size:0.75rem;color:var(--text-muted);">${dateStr}</td>
+              <td style="text-align:center;">
+                <button class="btn-icon-danger" title="Eliminar registro" onclick="deleteTimerExecution('${s.execution_id}')" style="background:transparent;border:none;color:var(--danger,#f43f5e);cursor:pointer;padding:4px 8px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;transition:background 0.2s, color 0.2s;" onmouseover="this.style.background='rgba(244,63,94,0.15)'" onmouseout="this.style.background='transparent'">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+  } catch (e) {
+    console.error('Error cargando estadísticas del cronómetro:', e);
+  }
+}
+
+async function deleteTimerExecution(executionId) {
+  if (!executionId) return;
+  if (!confirm('¿Deseas eliminar este registro del historial de ejecución?')) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/timer/executions/${executionId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Error al eliminar el registro');
+    }
+    showToast('Registro de ejecución eliminado', 'success');
+    loadTimerStats();
+  } catch (e) {
+    console.error('Error al eliminar registro de ejecución:', e);
+    showToast(e.message || 'Error al eliminar', 'error');
+  }
+}
+
+function exportTimedExcel() {
+  const url = `${API_BASE}/api/test-cases/export/excel?project_name=${encodeURIComponent(currentProject)}`;
+  window.open(url, '_blank');
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILTROS Y MODALES DE BASE DE CONOCIMIENTO & EJECUCIÓN
+// ══════════════════════════════════════════════════════════════
+function filterDocuments() {
+  const query = (document.getElementById('kbSearchInput')?.value || '').toLowerCase().trim();
+  const cat = document.getElementById('kbCatFilter')?.value || '';
+  const rows = document.querySelectorAll('#documentsGrid tr');
+
+  rows.forEach(r => {
+    const text = r.textContent.toLowerCase();
+    const matchesQuery = !query || text.includes(query);
+    const matchesCat = !cat || text.includes(cat.toLowerCase());
+    r.style.display = (matchesQuery && matchesCat) ? '' : 'none';
+  });
+}
+
+function filterExecutionCases() {
+  const search = (document.getElementById('executionSearch')?.value || '').toLowerCase().trim();
+  const status = document.getElementById('execStatusFilter')?.value || '';
+  const rows = document.querySelectorAll('#executionCasesList .exec-table-row');
+
+  rows.forEach(r => {
+    const text = r.textContent.toLowerCase();
+    const matchesSearch = !search || text.includes(search);
+    const matchesStatus = !status || text.includes(status.toLowerCase());
+    r.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
+  });
+}
+
+function openEditDocModal(id, filename, category) {
+  document.getElementById('editDocId').value = id;
+  document.getElementById('editDocName').value = filename;
+  document.getElementById('editDocCategory').value = category || 'requirements';
+  document.getElementById('editDocModal').classList.remove('hidden');
+}
+
+function closeEditDocModal() {
+  document.getElementById('editDocModal').classList.add('hidden');
+}
+
+async function saveEditDoc() {
+  const id = document.getElementById('editDocId').value;
+  const name = document.getElementById('editDocName').value.trim();
+  const cat = document.getElementById('editDocCategory').value;
+
+  if (!name) { showToast('El nombre no puede estar vacío', 'error'); return; }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/documents/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: name, category: cat })
+    });
+    if (!res.ok) throw new Error('Error al actualizar documento');
+    closeEditDocModal();
+    showToast('Documento actualizado', 'success');
+    loadDocuments();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+function toggleTranscriptDrawer() {
+  const p = document.getElementById('jarvisLogPanel');
+  if (p) {
+    p.classList.toggle('hidden');
+    _transcriptOpen = !p.classList.contains('hidden');
+    const btn = document.getElementById('jtbTranscriptToggle');
+    if (btn) btn.classList.toggle('active', _transcriptOpen);
+  }
+}
+
+function toggleTranscriptPopup() {
+  toggleTranscriptDrawer();
+}
+
+function toggleListening() {
+  if (window._isAIProcessing || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+    showToast('⚠️ CIEL AI está respondiendo. Espera a que termine o presiona DETENER.', 'warning');
+    return;
+  }
+  if (window.PRQAVoice && typeof PRQAVoice.toggleListening === 'function') {
+    PRQAVoice.toggleListening();
+  } else if (typeof startListening === 'function') {
+    startListening();
   }
 }
 
@@ -1948,3 +2991,437 @@ function closeOnboarding() {
   // Navigate to step 1
   switchModule('documents');
 }
+
+/* ══════════════════════════════════════════════════════════════
+   CIEL AI — Control de Conversación, Formato y Cancelación
+   ══════════════════════════════════════════════════════════════ */
+
+// Exponer _isAIProcessing al scope global para que voice.js pueda verificarlo
+Object.defineProperty(window, '_isAIProcessing', {
+  get: () => _isAIProcessing,
+  configurable: true,
+});
+
+function toggleTranscriptPopup() {
+  const popup = document.getElementById('transcriptPopup');
+  if (!popup) return;
+  _transcriptOpen = !_transcriptOpen;
+  popup.classList.toggle('hidden', !_transcriptOpen);
+  const btn = document.getElementById('jtbTranscriptToggle');
+  if (btn) btn.classList.toggle('active', _transcriptOpen);
+  if (_transcriptOpen) {
+    const body = document.getElementById('jarvisLogBody');
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+}
+
+function toggleTextInput() {
+  const bar = document.getElementById('textInputBar');
+  if (!bar) return;
+  _textInputOpen = !_textInputOpen;
+  bar.classList.toggle('hidden', !_textInputOpen);
+  if (_textInputOpen) {
+    setTimeout(() => {
+      const input = document.getElementById('tibInput');
+      if (input) input.focus();
+    }, 150);
+  }
+}
+
+function clearJarvisLog() {
+  const body = document.getElementById('jarvisLogBody');
+  if (body) {
+    body.innerHTML = `<div class="jlp-line jlp-system">
+      <span class="jlp-ts">${_jlpTs()}</span>
+      <span class="jlp-tag jlp-tag-sys">SYS</span>
+      <span class="jlp-text">Historial limpiado · CIEL AI en línea</span>
+    </div>`;
+  }
+}
+
+function _jlpTs() {
+  return new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+}
+
+// Formateador limpio para que las listas y párrafos no se junten en un bloque
+function _formatAIMessage(text) {
+  if (!text) return '';
+  let str = text.trim();
+
+  // Escapar HTML básico
+  let escaped = str.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Convertir **negrita** en <strong> con color sutil (no cyan sobreexpuesto)
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text-primary);font-weight:700;">$1</strong>');
+
+  // Dividir en líneas y renderizar separadas
+  const lines = escaped.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
+  const formatted = lines.map(line => {
+    if (/^\d+\./.test(line)) {
+      // Ítem numerado
+      return `<div style="display:flex;gap:8px;margin:5px 0;line-height:1.5;">${line}</div>`;
+    }
+    if (/^[*\u2022\-]/.test(line)) {
+      // Bullet point
+      return `<div style="display:flex;gap:8px;margin:4px 0 4px 8px;line-height:1.5;">${line}</div>`;
+    }
+    return `<p style="margin:0 0 7px 0;line-height:1.55;">${line}</p>`;
+  }).join('');
+
+  return formatted;
+}
+
+// Texto de la última respuesta de la IA (para releer si se reactiva el audio)
+
+// Activa/desactiva visualmente el botón DETENER (siempre visible, pero disabled cuando no procesa)
+function _setStopBtnActive(active) {
+  const btn = document.getElementById('tpStopBtn');
+  if (!btn) return;
+  if (active) {
+    btn.disabled = false;
+    btn.style.background = 'rgba(239,68,68,0.25)';
+    btn.style.color = '#fca5a5';
+    btn.style.border = '1px solid rgba(239,68,68,0.6)';
+    btn.style.cursor = 'pointer';
+    btn.style.opacity = '1';
+    btn.style.boxShadow = '0 0 12px rgba(239,68,68,0.3)';
+  } else {
+    btn.disabled = true;
+    btn.style.background = 'rgba(100,100,120,0.12)';
+    btn.style.color = 'rgba(180,180,200,0.3)';
+    btn.style.border = '1px solid rgba(180,180,200,0.15)';
+    btn.style.cursor = 'not-allowed';
+    btn.style.opacity = '0.5';
+    btn.style.boxShadow = 'none';
+  }
+}
+
+// Botón para detener la respuesta en curso y silenciar la voz
+function stopAI() {
+  if (_activeAbortController) {
+    try { _activeAbortController.abort(); } catch (e) { }
+    _activeAbortController = null;
+  }
+  if (window.PRQAVoice && typeof PRQAVoice.stop === 'function') {
+    PRQAVoice.stop();
+  }
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+  if (typeof stopSpeaking === 'function') {
+    stopSpeaking();
+  }
+
+  _isAIProcessing = false;
+
+  if (window.PRQAVoice) {
+    PRQAVoice.setOrbState('idle');
+  }
+
+  _setStopBtnActive(false);
+
+  appendJarvisLog('system', '⏹️ Respuesta detenida');
+  if (typeof showToast === 'function') showToast('⏹️ CIEL AI detenida', 'info');
+}
+
+// Silenciar/Reactivar la voz de CIEL AI (delega en PRQAVoice)
+function toggleTTS() {
+  if (window.PRQAVoice && typeof PRQAVoice.toggleTTS === 'function') {
+    PRQAVoice.toggleTTS();
+  }
+}
+
+// _currentInterimLine declarado al inicio del archivo
+
+function appendOrUpdateUserInterim(text) {
+  const body = document.getElementById('jarvisLogBody') || document.getElementById('jarvisLogList');
+  if (!body || !text || !text.trim()) return;
+
+  if (!_currentInterimLine || !document.getElementById('jlpActiveInterim')) {
+    _currentInterimLine = document.createElement('div');
+    _currentInterimLine.className = 'jlp-line jlp-user';
+    _currentInterimLine.id = 'jlpActiveInterim';
+    body.appendChild(_currentInterimLine);
+  }
+
+  _currentInterimLine.innerHTML = `
+    <span class="jlp-ts">${_jlpTs()}</span>
+    <span class="jlp-tag jlp-tag-user">USR</span>
+    <span class="jlp-text">${text.replace(/</g, '&lt;')} <em style="font-size:0.65rem;color:#10b981;font-style:normal;">●</em></span>
+  `;
+  body.scrollTop = body.scrollHeight;
+}
+
+function finalizeUserInterim(text) {
+  const el = document.getElementById('jlpActiveInterim');
+  if (el) el.remove();
+  _currentInterimLine = null;
+}
+
+// _lastLogEntry declarado al inicio del archivo
+
+function _formatLogText(text) {
+  if (!text) return '';
+  let str = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Negrita
+  str = str.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Viñetas con viñetas o guiones (•, ·, -, *)
+  str = str.replace(/^[•·\-\*]\s*(.+)$/gm, '<div class="jlp-bullet-item"><span class="jlp-bullet-dot">▪</span><span>$1</span></div>');
+
+  // Listas numeradas (1., 2., etc)
+  str = str.replace(/^(\d+)\.\s*(.+)$/gm, '<div class="jlp-bullet-item"><span class="jlp-bullet-num">$1.</span><span>$2</span></div>');
+
+  // Párrafos y saltos
+  str = str.replace(/\n\n+/g, '<div class="jlp-gap"></div>');
+  str = str.replace(/\n/g, '<br>');
+
+  return str;
+}
+
+function appendJarvisLog(type, text) {
+  const body = document.getElementById('jarvisLogBody') || document.getElementById('jarvisLogList');
+  if (!body || !text) return;
+
+  const now = Date.now();
+  // Evitar duplicar exactamente el mismo mensaje consecutivo en menos de 1.5 segundos
+  if (_lastLogEntry.type === type && _lastLogEntry.text === text && (now - _lastLogEntry.time) < 1500) {
+    return;
+  }
+  _lastLogEntry = { type, text, time: now };
+
+  // Si había una línea interim, limpiarla
+  if (type === 'user') {
+    finalizeUserInterim();
+  }
+
+  const tagMap = {
+    user: { cls: 'jlp-user', tag: 'USR', tagCls: 'jlp-tag-user' },
+    ai: { cls: 'jlp-ai', tag: 'CIEL AI', tagCls: 'jlp-tag-ai' },
+    system: { cls: 'jlp-system', tag: 'SYS', tagCls: 'jlp-tag-sys' },
+    error: { cls: 'jlp-error', tag: 'ERR', tagCls: 'jlp-tag-err' },
+  };
+
+  const m = tagMap[type] || tagMap.system;
+
+  const line = document.createElement('div');
+  line.className = `jlp-line ${m.cls}`;
+  line.innerHTML = `
+    <span class="jlp-ts">${_jlpTs()}</span>
+    <span class="jlp-tag ${m.tagCls}">${m.tag}</span>
+    <span class="jlp-text">${_formatLogText(text)}</span>
+  `;
+
+  body.appendChild(line);
+  body.scrollTop = body.scrollHeight;
+
+  // Abrir automáticamente la transcripción cuando hay un mensaje del usuario o de la IA
+  if ((type === 'ai' || type === 'user') && !_transcriptOpen) {
+    const panel = document.getElementById('jarvisLogPanel');
+    if (panel) {
+      panel.classList.remove('hidden');
+      _transcriptOpen = true;
+      const btn = document.getElementById('jtbTranscriptToggle');
+      if (btn) btn.classList.add('active');
+    }
+  }
+}
+
+window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
+window.finalizeUserInterim = finalizeUserInterim;
+window.appendJarvisLog = appendJarvisLog;
+
+// Respuestas inmediatas (< 100ms) para comandos y consultas comunes
+function _getInstantResponse(query) {
+  const q = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|que tal|saludos)/.test(q)) {
+    return "¡Hola! Soy CIEL AI, tu asistente de aseguramiento de calidad en PRQA.\n¿Deseas consultar sobre la base de conocimiento, generar casos EOPA o registrar pruebas?";
+  }
+  if (q.includes("que sabes hacer") || q.includes("que puedes hacer") || q.includes("quien eres") || q.includes("ayuda") || q.includes("que es esto")) {
+    return "Soy CIEL AI, el asistente de calidad de software de Ciel Ingeniería S.A.S.\nPuedo ayudarte en:\n1. **Base de Conocimiento**: Cargar y consultar requerimientos MTR y BRD.\n2. **Generar Casos EOPA**: Crear matrices de prueba automatizadas en Excel DTR029C.\n3. **Ejecutar Pruebas**: Registrar resultados CUMPLE o NO CUMPLE y severidades.\n4. **Tiempos de Ejecución**: Cronometrar tus sesiones de prueba.\n5. **Dashboard**: Monitorear KPIs e indicadores de calidad.";
+  }
+  if (q.includes("que es prqa") || q.includes("para que sirve prqa") || q.includes("de que trata la app")) {
+    return "PRQA es la plataforma local y privada de Calidad de Software para Ciel Ingeniería S.A.S. Permite analizar requerimientos, generar matrices EOPA DTR029C y validar pruebas sin enviar datos a internet.";
+  }
+  if (q.includes("base de conocimiento") || q.includes("cargar documento") || q.includes("subir documento") || q.includes("como indexar")) {
+    return "En el módulo **Base de Conocimiento** puedes arrastrar documentos técnicos en PDF, Word o Excel (MTR, BRD o Plantillas).\nEl sistema los fragmenta e indexa semánticamente en ChromaDB para usarlos como contexto en tus pruebas.";
+  }
+  if (q.includes("como genero casos") || q.includes("generar casos") || q.includes("crear casos") || q.includes("matriz de prueba") || q.includes("eopa")) {
+    return "Para generar casos de prueba:\n1. Ve al módulo **Generar Casos**.\n2. Selecciona los tipos de prueba (Funcionales, Negativos, Seguridad, etc.).\n3. Escribe o pega el requerimiento y define la cantidad.\n4. Presiona **Generar Casos de Prueba** para descargar tu Excel DTR029C.";
+  }
+  if (q.includes("ejecutar pruebas") || q.includes("cumple") || q.includes("no cumple") || q.includes("registrar prueba")) {
+    return "En **Ejecutar Pruebas** visualizas los casos del proyecto activo. Para cada uno marcas **CUMPLE** o **NO CUMPLE**.\nSi no cumple, puedes clasificar la severidad (Crítica, Alta, Media, Baja) e incidencias para el Dashboard.";
+  }
+  if (q.includes("tiempo") || q.includes("cronometro") || q.includes("productividad") || q.includes("temporizador")) {
+    return "En **Tiempos de Ejecución** puedes iniciar, pausar y registrar el cronómetro de tus sesiones de testing para medir la productividad del tester.";
+  }
+  if (q.includes("dashboard") || q.includes("metricas") || q.includes("indicadores") || q.includes("kpi")) {
+    return "El **Dashboard** consolida en tiempo real los KPIs del ciclo: Total de Casos, Tasa de Éxito, distribución por tipo de prueba y defectos por severidad.";
+  }
+
+  // Filtro de preguntas fuera de contexto PRQA — solo responder sobre la aplicación
+  const topicosOk = [
+    'prqa', 'ciel', 'prueba', 'caso', 'documento', 'mtr', 'brd', 'excel', 'eopa', 'dtr',
+    'requerimiento', 'modulo', 'base de conocimiento', 'generador', 'execut', 'tiempo',
+    'dashboard', 'kpi', 'asistente', 'ia', 'voz', 'transcripcion', 'calidad', 'qa',
+    'testing', 'proyecto', 'subir', 'cargar', 'indexar', 'fragmentar', 'cumple', 'no cumple',
+    'severidad', 'defecto', 'software', 'chromadb', 'llama', 'plantilla', 'formato',
+    'descargar', 'generar', 'registrar', 'funcionan', 'funciona', 'como'
+  ];
+  const tieneTopico = topicosOk.some(t => q.includes(t));
+  const esCorto = q.split(' ').length <= 3; // saludos y frases muy cortas se dejan pasar
+  if (!tieneTopico && !esCorto) {
+    return "Solo puedo responder preguntas sobre la aplicación **PRQA** de Ciel Ingeniería S.A.S.\n\nPuedo ayudarte con:\n• Subir documentos MTR, BRD o plantillas\n• Generar casos de prueba EOPA\n• Registrar resultados CUMPLE / NO CUMPLE\n• Consultar métricas del Dashboard\n• Controlar tiempos de ejecución";
+  }
+
+  return null;
+}
+
+async function queryCielAI(text) {
+  if (!text || !text.trim()) return;
+  const query = text.trim();
+
+  // 1. Bloqueo estricto de concurrencia: 1 consulta a la vez
+  if (_isAIProcessing) {
+    if (typeof showToast === 'function') {
+      showToast('⚠️ CIEL AI está ocupada. Presiona DETENER para interrumpir.', 'warning');
+    }
+    return;
+  }
+
+  _isAIProcessing = true;
+  _activeAbortController = new AbortController();
+
+  // Activar botón DETENER en la barra
+  _setStopBtnActive(true);
+
+  // 2. Registrar consulta del usuario
+  appendJarvisLog('user', query);
+
+  function _finishAI() {
+    _isAIProcessing = false;
+    _activeAbortController = null;
+    _setStopBtnActive(false);
+    if (window.PRQAVoice) PRQAVoice.setOrbState('idle');
+  }
+
+  // 3. Respuesta instantánea para navegación y preguntas comunes
+  const instantAnswer = _getInstantResponse(query);
+  if (instantAnswer) {
+    _lastAIResponse = instantAnswer;
+    window._lastAIResponse = instantAnswer;
+    appendJarvisLog('ai', instantAnswer);
+
+    if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
+      PRQAVoice.setOrbState('speaking');
+      PRQAVoice.speak(instantAnswer, {
+        onEnd: _finishAI
+      });
+    } else {
+      _finishAI();
+    }
+    return;
+  }
+
+  // 4. Consulta profunda con motor local
+  if (window.PRQAVoice) PRQAVoice.setOrbState('processing');
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      signal: _activeAbortController.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: query,
+        use_knowledge_base: true,
+        project_name: typeof currentProject !== 'undefined' ? currentProject : 'Proyectos'
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const errMsg = err.detail || 'No se pudo procesar la solicitud.';
+      appendJarvisLog('error', errMsg);
+      if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
+        PRQAVoice.setOrbState('speaking');
+        PRQAVoice.speak('Error: ' + errMsg, {
+          onEnd: _finishAI
+        });
+      } else {
+        _finishAI();
+      }
+      return;
+    }
+
+    const data = await res.json();
+    if (data && data.response) {
+      _lastAIResponse = data.response;
+      window._lastAIResponse = data.response;
+      appendJarvisLog('ai', data.response);
+
+      if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
+        PRQAVoice.setOrbState('speaking');
+        PRQAVoice.speak(data.response, {
+          onEnd: _finishAI
+        });
+      } else {
+        _finishAI();
+      }
+    } else {
+      _finishAI();
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      console.log('[CIEL AI] Consulta detenida por el usuario');
+      _finishAI();
+    } else {
+      console.error('[PRQA AI Error]', e);
+      appendJarvisLog('error', 'Error de conexión con el motor de IA local.');
+      if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
+        PRQAVoice.setOrbState('speaking');
+        PRQAVoice.speak('No pude conectar con el servidor de inteligencia artificial.', {
+          onEnd: _finishAI
+        });
+      } else {
+        _finishAI();
+      }
+    }
+  }
+}
+
+async function sendTextToAI() {
+  if (window._isAIProcessing || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+    showToast('⚠️ CIEL AI está respondiendo. Espera a que termine o presiona DETENER.', 'warning');
+    return;
+  }
+  const input = document.getElementById('tibInput');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+  toggleTextInput();
+  await queryCielAI(text);
+}
+
+window.queryCielAI = queryCielAI;
+window.stopAI = stopAI;
+window.appendJarvisLog = appendJarvisLog;
+window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
+window.toggleTranscriptDrawer = toggleTranscriptDrawer;
+window.showToast = showToast;
+window.toggleListening = toggleListening;
+window.toggleTTS = toggleTTS;
+window.toggleTextInput = toggleTextInput;
+window.openExecMatrixDetail = openExecMatrixDetail;
+window.backToExecMatrices = backToExecMatrices;
+window.refreshExecDetail = refreshExecDetail;
+window.filterExecDetailCases = filterExecDetailCases;
+window.openExecutionModal = openExecutionModal;
+window.closeExecutionModal = closeExecutionModal;
+window.selectResult = selectResult;
+window.saveExecution = saveExecution;
+

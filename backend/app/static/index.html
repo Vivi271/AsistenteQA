@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRQA — Asistente de QA con IA Local | Ciel Ingeniería</title>
+  <meta name="description"
+    content="Asistente de calidad de software potenciado por IA local para el equipo de testers de Ciel Ingeniería S.A.S" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@400;600;700;900&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css?v=4.0.0" />
+</head>
+
+<body>
+  <!-- ═══ BOOT SCREEN JARVIS ═══ -->
+  <div class="boot-screen" id="bootScreen">
+    <div class="boot-logo">PRQA</div>
+    <div class="boot-subtitle">Asistente QA con IA Local &mdash; Ciel Ingeniería S.A.S</div>
+    <div class="boot-bar-wrap"><div class="boot-bar"></div></div>
+    <div class="boot-status" id="bootStatus">Inicializando sistema...</div>
+  </div>
+
+  <!-- ═══ HUD BAR SUPERIOR ═══ -->
+  <div class="hud-bar" id="hudBar">
+    <div class="hud-bar-left">
+      <div class="hud-system-badge">
+        <div class="hud-system-dot"></div>
+        PRQA SISTEMA EN LÍNEA
+      </div>
+      <div class="hud-divider"></div>
+      <span class="hud-model-chip" id="hudModelChip">llama3.2</span>
+    </div>
+    <div class="hud-bar-center">Ciel Ingeniería S.A.S &nbsp;|&nbsp; Suite de Inteligencia QA</div>
+    <div class="hud-bar-right">
+      <span class="hud-version">versión 2026.08</span>
+      <div class="hud-divider"></div>
+      <span class="hud-clock" id="hudClock">00:00:00</span>
+    </div>
+  </div>
+
+  <!-- ═══ APP LAYOUT WRAPPER ═══ -->
+  <div class="app-layout" id="appLayout">
+
+  <!-- Fondo animado -->
+  <div class="bg-grid"></div>
+  <div class="bg-scanline"></div>
+  <div class="bg-radar"><div class="bg-radar-line"></div></div>
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-container">
+        <div class="logo-badge">
+          <img src="/static/img/ciel_logo.png" onerror="this.onerror=null; this.src='img/ciel_logo.png'" alt="CIEL Ingeniería" class="ciel-logo" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Selector de Proyecto rediseñado con gestión completa -->
+    <div class="project-selector-card" id="projectSelectorCard">
+      <div class="project-selector-header">
+        <span class="project-title-label">PROYECTO ACTIVO</span>
+        <button class="proj-new-btn" onclick="openCreateProjectModal()" title="Nuevo proyecto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+      <!-- Proyecto activo prominente -->
+      <div class="active-project-display" onclick="toggleProjectDropdown()">
+        <div class="active-project-dot"></div>
+        <span class="active-project-name" id="activeProjectName">Proyectos</span>
+        <svg class="proj-chevron" id="projChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <!-- Dropdown de proyectos -->
+      <div class="project-dropdown hidden" id="projectDropdown">
+        <div class="project-dropdown-list" id="projectDropdownList">
+          <!-- populated by JS -->
+        </div>
+        <div class="project-dropdown-footer">
+          <button class="proj-action-add" onclick="openCreateProjectModal(); closeProjectDropdown()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Crear nuevo proyecto
+          </button>
+        </div>
+      </div>
+      <!-- Acciones del proyecto activo -->
+      <div class="project-action-row" id="projectActionRow">
+        <button class="proj-action-btn proj-rename" onclick="openRenameProjectModal()" title="Renombrar proyecto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Renombrar
+        </button>
+        <button class="proj-action-btn proj-delete" onclick="openDeleteProjectModal()" title="Eliminar proyecto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Eliminar
+        </button>
+      </div>
+    </div>
+
+
+    <!-- Navegación con pasos numerados (sin Asistente IA - ahora es burbuja flotante) -->
+    <div class="nav-flow-label">FLUJO DE TRABAJO</div>
+    <nav class="sidebar-nav">
+      <button class="nav-item" id="navDocuments" onclick="switchModule('documents')">
+        <div class="nav-step-badge">1</div>
+        <div class="nav-text-group">
+          <span class="nav-title">Base de Conocimiento</span>
+          <span class="nav-subtitle">Sube tus documentos y MTR</span>
+        </div>
+        <div class="nav-indicator"></div>
+      </button>
+
+      <button class="nav-item" id="navGenerate" onclick="switchModule('generate')">
+        <div class="nav-step-badge">2</div>
+        <div class="nav-text-group">
+          <span class="nav-title">Generar Casos</span>
+          <span class="nav-subtitle">La IA crea casos de prueba</span>
+        </div>
+        <div class="nav-indicator"></div>
+      </button>
+
+      <button class="nav-item" id="navExecution" onclick="switchModule('execution')">
+        <div class="nav-step-badge">3</div>
+        <div class="nav-text-group">
+          <span class="nav-title">Ejecutar Pruebas</span>
+          <span class="nav-subtitle">Registra CUMPLE o NO CUMPLE</span>
+        </div>
+        <div class="nav-indicator"></div>
+      </button>
+
+      <button class="nav-item" id="navTimer" onclick="switchModule('timer')">
+        <div class="nav-step-badge" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;">⏱</div>
+        <div class="nav-text-group">
+          <span class="nav-title">Tiempos de Ejecución</span>
+          <span class="nav-subtitle">Cronómetro y analíticas</span>
+        </div>
+        <div class="nav-indicator"></div>
+      </button>
+
+      <button class="nav-item" id="navDashboard" onclick="switchModule('dashboard')">
+        <div class="nav-step-badge nav-step-alt">⊙</div>
+        <div class="nav-text-group">
+          <span class="nav-title">Dashboard</span>
+          <span class="nav-subtitle">Metricas del ciclo de pruebas</span>
+        </div>
+        <div class="nav-indicator"></div>
+      </button>
+    </nav>
+
+    <!-- Footer: solo toggle de tema -->
+    <div class="sidebar-footer">
+      <div class="theme-toggle-container">
+        <button class="theme-toggle-btn active" id="themeDarkBtn" onclick="toggleTheme('dark')" title="Modo Oscuro">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+          <span>Oscuro</span>
+        </button>
+        <button class="theme-toggle-btn" id="themeLightBtn" onclick="toggleTheme('light')" title="Modo Claro">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          </svg>
+          <span>Claro</span>
+        </button>
+      </div>
+    </div>
+    <!-- Resizer handle interactivo para ajustar el ancho del panel libremente -->
+    <div class="sidebar-resizer" id="sidebarResizer" title="Arrastra hacia los lados para redimensionar el panel"></div>
+  </aside>
+
+  <!-- Botón colapsar sidebar — FUERA del aside, pegado a su borde derecho -->
+  <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" title="Mostrar/Ocultar sidebar">
+    <svg id="sidebarCollapseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+      <polyline points="15 18 9 12 15 6"/>
+    </svg>
+  </button>
+
+
+  <!-- Contenido principal -->
+  <main class="main-content" id="mainContent">
+
+    <!-- ════════════════════════════════════════════
+         MÓDULO 5: TEMPORIZADOR DE EJECUCIÓN
+    ════════════════════════════════════════════ -->
+    <section class="module" id="moduleTimer">
+      <div class="module-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+        <div class="module-title-group">
+          <h1 class="module-title">⏱ Tiempos de Ejecución</h1>
+          <p class="module-subtitle">Mide, registra y analiza el tiempo real de cada caso de prueba por matriz Excel</p>
+        </div>
+        <button class="btn-secondary" onclick="exportTimerExcel()" style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;padding:0.55rem 1rem;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;cursor:pointer;color:var(--text-primary);font-weight:600;transition:all 0.2s;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Descargar Excel con Tiempos
+        </button>
+      </div>
+
+      <div class="timer-layout">
+
+        <!-- ── Panel izquierdo: Cronómetro ── -->
+        <div class="timer-panel panel">
+          <!-- Selector de Matriz Excel -->
+          <div class="timer-section">
+            <label class="field-label">Matriz de Pruebas (Archivo Excel)</label>
+            <select id="timerExcelSelect" class="select-input" onchange="onTimerExcelChange()">
+              <option value="">— Todas las matrices de prueba —</option>
+            </select>
+          </div>
+
+          <div class="timer-section">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+              <label class="field-label" style="margin:0;">Caso de Prueba</label>
+              <span id="timerCaseCount" style="font-size:0.75rem;color:var(--text-muted);"></span>
+            </div>
+            <select id="timerCaseSelect" class="select-input" onchange="onTimerCaseChange()">
+              <option value="">— Selecciona un caso de prueba —</option>
+            </select>
+            <div id="timerCaseInfo" style="display:none;flex-wrap:wrap;gap:0.4rem;margin-top:0.4rem;align-items:center;"></div>
+          </div>
+
+          <!-- Nombre tester -->
+          <div class="timer-section">
+            <label class="field-label">Tester</label>
+            <input type="text" id="timerTesterInput" class="text-input" placeholder="Nombre del tester (opcional)" />
+          </div>
+
+          <!-- Display del cronómetro -->
+          <div class="timer-clock-wrap">
+            <div class="timer-status-row">
+              <div id="timerStatusDot" class="timer-status-dot idle"></div>
+              <span id="timerStatusLabel" class="timer-status-label">Listo</span>
+            </div>
+            <div id="timerDisplay" class="timer-display">00:00.0</div>
+            <div class="timer-btn-row">
+              <button id="btnTimerStart"  class="timer-btn timer-btn-start"  onclick="timerAction_start()">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><polygon points="5,3 19,12 5,21"/></svg>
+                Iniciar
+              </button>
+              <button id="btnTimerPause"  class="timer-btn timer-btn-pause"  onclick="timerAction_pause()"  style="display:none;">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                Pausar
+              </button>
+              <button id="btnTimerResume" class="timer-btn timer-btn-resume" onclick="timerAction_resume()" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><polygon points="5,3 19,12 5,21"/></svg>
+                Reanudar
+              </button>
+              <button id="btnTimerStop"   class="timer-btn timer-btn-stop"   onclick="timerAction_stopPrompt()" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><rect x="4" y="4" width="16" height="16"/></svg>
+                Detener
+              </button>
+            </div>
+          </div>
+
+          <!-- Formulario de resultado (oculto hasta que se detenga) -->
+          <div id="timerResultPanel" class="timer-result-panel" style="display:none;">
+            <h3 class="timer-result-title">Registrar Resultado</h3>
+            <div class="timer-result-choices">
+              <label class="result-choice cumple">
+                <input type="radio" name="timerResult" value="CUMPLE" onchange="toggleNoCumpleFields()" />
+                <span>✅ CUMPLE</span>
+              </label>
+              <label class="result-choice no-cumple">
+                <input type="radio" name="timerResult" value="NO CUMPLE" onchange="toggleNoCumpleFields()" />
+                <span>❌ NO CUMPLE</span>
+              </label>
+            </div>
+            <div id="timerNoCumpleFields" style="display:none;margin-top:0.75rem;">
+              <div class="field-group">
+                <label class="field-label">Severidad</label>
+                <select id="timerSeveritySelect" class="select-input">
+                  <option value="Tolerable">Tolerable</option>
+                  <option value="Crítico">Crítico</option>
+                  <option value="Bloqueante">Bloqueante</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Tipo de Incidencia</label>
+                <select id="timerIncTypeSelect" class="select-input">
+                  <option value="Error">Error</option>
+                  <option value="Mejora">Mejora</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-group" style="margin-top:0.75rem;">
+              <label class="field-label">Observaciones / Incidente</label>
+              <textarea id="timerNotesInput" class="text-input" rows="3"
+                placeholder="Describe el incidente o resultado (obligatorio para NO CUMPLE)"></textarea>
+            </div>
+            <div class="timer-result-actions">
+              <button class="btn-ghost" onclick="document.getElementById('timerResultPanel').style.display='none'">Cancelar</button>
+              <button class="btn-primary" style="background:var(--accent-success);border-color:var(--accent-success);"
+                onclick="timerAction_confirmStop('CUMPLE')">✅ Guardar CUMPLE</button>
+              <button class="btn-primary" style="background:var(--accent-danger);border-color:var(--accent-danger);"
+                onclick="timerAction_confirmStop('NO CUMPLE')">❌ Guardar NO CUMPLE</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Panel derecho: Analíticas ── -->
+        <div class="timer-analytics">
+
+          <!-- KPI Cards -->
+          <div class="timer-kpi-grid">
+            <div class="timer-kpi-card">
+              <span class="kpi-label">Ejecutados</span>
+              <span class="kpi-value" id="timerStatTotal">0</span>
+            </div>
+            <div class="timer-kpi-card">
+              <span class="kpi-label">⌀ Promedio</span>
+              <span class="kpi-value" id="timerStatAvg">—</span>
+            </div>
+            <div class="timer-kpi-card">
+              <span class="kpi-label">∑ Total</span>
+              <span class="kpi-value" id="timerStatTotalT">—</span>
+            </div>
+            <div class="timer-kpi-card">
+              <span class="kpi-label">⚡ Mínimo</span>
+              <span class="kpi-value" id="timerStatMin">—</span>
+            </div>
+            <div class="timer-kpi-card">
+              <span class="kpi-label">🐌 Máximo</span>
+              <span class="kpi-value" id="timerStatMax">—</span>
+            </div>
+          </div>
+
+          <!-- Tiempo por RF -->
+          <div class="panel" style="margin-top:1.2rem;">
+            <h3 class="panel-title" style="font-size:0.85rem;margin-bottom:1rem;">
+              Tiempo promedio por Módulo / RF
+            </h3>
+            <div id="timerRfBars"><p class="timer-empty">Sin datos aún.</p></div>
+          </div>
+
+          <!-- Por tipo de prueba -->
+          <div class="panel" style="margin-top:1rem;">
+            <h3 class="panel-title" style="font-size:0.85rem;margin-bottom:0.75rem;">
+              Promedio por Tipo de Prueba
+            </h3>
+            <div id="timerTypePills" style="display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historial de sesiones -->
+      <div class="panel" style="margin-top:1.5rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h3 class="panel-title" style="margin:0;">Historial de Ejecuciones Cronometradas</h3>
+          <button class="btn-ghost" style="font-size:0.8rem;" onclick="loadTimerHistory(window.currentProject||'Proyectos')">↻ Actualizar</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="history-table" style="width:100%;">
+            <thead>
+              <tr>
+                <th>ID Caso</th>
+                <th>Título</th>
+                <th>Módulo</th>
+                <th>Tiempo</th>
+                <th>Resultado</th>
+                <th>Fecha</th>
+                <th style="width:70px;text-align:center;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="timerHistoryBody">
+              <tr><td colspan="7" class="timer-empty" style="text-align:center;padding:2rem;">Sin sesiones registradas aún.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+
+
+    <!-- ════════════════════════════════════════════
+         MÓDULO 2: GENERADOR DE CASOS DE PRUEBA
+    ════════════════════════════════════════════ -->
+    <section class="module" id="moduleGenerate">
+      <!-- Banner de instrucciones -->
+      <div class="how-to-banner">
+        <div class="how-to-steps">
+          <div class="how-to-step">
+            <div class="how-to-num">1</div>
+            <span>Selecciona un documento de tu base de conocimiento (opcional pero recomendado)</span>
+          </div>
+          <div class="how-to-arrow">→</div>
+          <div class="how-to-step">
+            <div class="how-to-num">2</div>
+            <span>Escribe o pega el texto del requerimiento a probar</span>
+          </div>
+          <div class="how-to-arrow">→</div>
+          <div class="how-to-step">
+            <div class="how-to-num">3</div>
+            <span>Haz clic en "Generar" y la IA creara los casos en formato EOPA</span>
+          </div>
+        </div>
+      </div>
+      <div class="module-header">
+        <div class="module-title-group">
+          <h1 class="module-title">Generar Casos de Prueba</h1>
+          <p class="module-subtitle">La IA analiza tu requerimiento y genera casos listos para ejecutar</p>
+        </div>
+
+      </div>
+
+      <div class="generate-layout">
+        <!-- Panel de configuración -->
+        <div class="generate-config panel">
+          <h2 class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2" />
+            </svg>
+            Configuración
+          </h2>
+
+          <div class="form-group">
+            <label class="form-label" for="projectName">Nombre del Proyecto</label>
+            <input type="text" id="projectName" class="form-input" disabled value="" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="moduleName">Módulo / Funcionalidad</label>
+            <input type="text" id="moduleName" class="form-input" placeholder="ej. Autenticación" value="" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Tipos de Prueba <span class="form-label-hint">(Selecciona para incluir)</span></label>
+            <div class="custom-multiselect" id="customTestTypesSelect">
+              <div class="multiselect-trigger" onclick="toggleTestTypesDropdown()">
+                <span id="multiselectPlaceholder">Seleccionar tipos de prueba...</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+              <div class="multiselect-dropdown hidden" id="testTypesDropdown">
+                <label class="dropdown-item">
+                  <input type="checkbox" value="FUNCIONALES" data-label="Funcionales / Negocio" checked onchange="updateTestTypeChips()" />
+                  <span>Funcionales / Negocio</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="CASOS NEGATIVOS" data-label="Casos Negativos / Bordes" checked onchange="updateTestTypeChips()" />
+                  <span>Casos Negativos / Bordes</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="SEGURIDAD" data-label="Seguridad / Ciberseguridad" checked onchange="updateTestTypeChips()" />
+                  <span>Seguridad / Ciberseguridad</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="INTEGRACION" data-label="Integración / APIs" onchange="updateTestTypeChips()" />
+                  <span>Integración / APIs</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="NO FUNCIONALES" data-label="No Funcionales / UI" onchange="updateTestTypeChips()" />
+                  <span>No Funcionales / UI</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="CARGA" data-label="Carga y Rendimiento" onchange="updateTestTypeChips()" />
+                  <span>Carga y Rendimiento</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="COMPATIBILIDAD" data-label="Compatibilidad / Dispositivos" onchange="updateTestTypeChips()" />
+                  <span>Compatibilidad / Dispositivos</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="checkbox" value="RESILIENCIA" data-label="Resiliencia / Reintentos" onchange="updateTestTypeChips()" />
+                  <span>Resiliencia / Reintentos</span>
+                </label>
+              </div>
+            </div>
+            <!-- Chips de tipos seleccionados -->
+            <div class="selected-chips-container" id="selectedTestTypeChips"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="numCases">Cantidad de Casos a Generar</label>
+            <input type="number" id="numCases" class="form-input" min="1" max="100" value="6" placeholder="ej. 6" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Cargar desde Base de Conocimiento <span class="form-label-hint">(Selecciona uno o varios documentos)</span></label>
+            <div class="custom-multiselect" id="customDocSelect">
+              <div class="multiselect-trigger" onclick="toggleDocMultiselect()">
+                <span id="docMultiselectPlaceholder">-- Seleccionar documentos indexados (Opcional) --</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+              <div class="multiselect-dropdown hidden" id="docMultiselectDropdown">
+                <!-- Se puebla dinámicamente con checkboxes por loadDocumentsForGenerator() -->
+              </div>
+            </div>
+            <!-- Chips de documentos seleccionados -->
+            <div class="selected-chips-container" id="selectedDocChips"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="requirementText">Requerimiento / MTR <span class="form-label-hint">(pega el texto del requerimiento a probar)</span></label>
+            <textarea id="requirementText" class="form-textarea"
+              placeholder="Ejemplo: El sistema debe permitir registrar un afiliado con nombre, RUT y fecha de nacimiento. El RUT debe ser unico y validado. Si el RUT ya existe, mostrar mensaje de error..."
+              rows="8"></textarea>
+          </div>
+
+          <button class="btn-primary btn-full" id="generateBtn" onclick="generateTestCases()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            Generar Casos de Prueba
+          </button>
+        </div>
+
+        <!-- Panel de resultados: historial de Excels -->
+        <div class="generate-results panel" style="position:relative;">
+          <div class="panel-header" style="flex-shrink:0;">
+            <h2 class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              Historial de Excels Generados
+            </h2>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <span class="badge" id="caseCountBadge">0</span>
+              <button class="btn-ghost" style="font-size:0.7rem;padding:0.3rem 0.6rem;" onclick="loadTestCasesForGenerator()" title="Actualizar historial">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Banner de progreso: compacto, no tapa el historial -->
+          <div id="generatorLoading" class="excel-loading-overlay hidden">
+            <div class="loading-orb" style="width:22px;height:22px;flex-shrink:0;"></div>
+            <div>
+              <p style="font-weight:600;color:var(--accent-primary);margin:0;font-size:0.82rem;">Generando con IA...</p>
+              <span style="font-size:0.72rem;color:var(--text-muted);">Analizando el requerimiento y construyendo el Excel EOPA</span>
+            </div>
+          </div>
+
+
+          <!-- Historial de archivos siempre visible -->
+          <div id="testCasesContainer" class="test-cases-list">
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <p>Historial de archivos vacío</p>
+              <span>Genera casos de prueba a la izquierda para producir y guardar archivos Excel descargables</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         MÓDULO 3: EJECUCIÓN DE PRUEBAS (NAVEGACIÓN POR EXCEL / DOCUMENTO)
+    ════════════════════════════════════════════ -->
+    <section class="module" id="moduleExecution">
+
+      <!-- ── VISTA 1: LISTADO DE ARCHIVOS EXCEL / DOCUMENTOS ─────── -->
+      <div id="execBooksListView" class="exec-view-section">
+        <!-- Header de la lista de Excels -->
+        <div class="exec-header-row">
+          <div>
+            <h1 class="exec-title">Matrices y Archivos de Pruebas</h1>
+            <p class="exec-subtitle">Selecciona un archivo Excel o módulo para ejecutar sus casos de prueba en el proyecto <span id="execProjectName">—</span></p>
+          </div>
+          <div class="exec-kpi-row">
+            <span class="exec-kpi-chip" id="execGlobalKpiFiles">0 <em>Archivos</em></span>
+            <span class="exec-kpi-chip" id="execGlobalKpiTotal">0 <em>Casos Totales</em></span>
+            <span class="exec-kpi-chip green" id="execGlobalKpiPass">0 <em>Cumple</em></span>
+            <span class="exec-kpi-chip red" id="execGlobalKpiFail">0 <em>No Cumple</em></span>
+            <span class="exec-kpi-chip purple" id="execGlobalKpiRate">0% <em>Avance</em></span>
+          </div>
+        </div>
+
+        <!-- Buscador de Archivos Excel -->
+        <div class="exec-filter-row" style="margin-bottom: 1.25rem;">
+          <div class="exec-fg" style="flex: 0 0 auto; min-width: 260px; max-width: 420px;">
+            <label>Buscar Archivo Excel o Módulo</label>
+            <div class="exec-search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="execBookSearchInput" placeholder="Buscar por nombre de archivo, módulo..." oninput="filterExecBooks()" />
+            </div>
+          </div>
+          <div class="exec-fg exec-fg--actions">
+            <button class="ef-btn ef-btn--ghost" onclick="loadTestCasesForExecution()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Actualizar
+            </button>
+            <button class="ef-btn ef-btn--primary" onclick="exportTestCases()">Exportar Todo</button>
+          </div>
+        </div>
+
+        <!-- Grid de Tarjetas de Libros / Excels -->
+        <div class="exec-books-grid" id="execBooksGrid">
+          <div class="exec-empty-state" style="grid-column: 1 / -1;">
+            <div class="loading-dots"><span></span><span></span><span></span></div>
+            <div style="font-size:0.75rem;margin-top:0.5rem;">Cargando archivos Excel...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── VISTA 2: DENTRO DEL EXCEL SELECCIONADO ──────────────── -->
+      <div id="execBookDetailView" class="exec-view-section hidden">
+        <!-- Barra de navegación y breadcrumb -->
+        <div class="exec-detail-nav">
+          <button type="button" class="exec-back-btn" onclick="backToExecBooksList()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
+            <span>Volver a todos los Excel</span>
+          </button>
+          <div class="exec-active-doc-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span id="execActiveBookTitle">Excel: —</span>
+          </div>
+        </div>
+
+        <!-- Header del Excel Activo -->
+        <div class="exec-header-row">
+          <div>
+            <h1 class="exec-title" id="execActiveBookHeading">Archivo Excel</h1>
+            <p class="exec-subtitle">Casos de prueba correspondientes a este archivo</p>
+          </div>
+          <!-- KPIs específicos del Excel -->
+          <div class="exec-kpi-row">
+            <span class="exec-kpi-chip" id="execKpiTotal">0 <em>Total</em></span>
+            <span class="exec-kpi-chip amber" id="execKpiPending">0 <em>Pendientes</em></span>
+            <span class="exec-kpi-chip green" id="execKpiPass">0 <em>Cumple</em></span>
+            <span class="exec-kpi-chip red" id="execKpiFail">0 <em>No Cumple</em></span>
+            <span class="exec-kpi-chip purple" id="execKpiRate">0% <em>Éxito</em></span>
+          </div>
+        </div>
+
+        <!-- Filtros dentro de este Excel -->
+        <div class="exec-filter-row">
+          <!-- Búsqueda en este Excel -->
+          <div class="exec-fg exec-fg--grow">
+            <label>Buscar en este Excel</label>
+            <div class="exec-search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="execFilterSearch" placeholder="Buscar ID, título, pasos..." oninput="applyExecFilters()" />
+            </div>
+          </div>
+          <!-- Tipo de Prueba -->
+          <div class="exec-fg">
+            <label>Tipo</label>
+            <select id="execFilterType" onchange="applyExecFilters()">
+              <option value="">Todos los tipos</option>
+              <option value="FUNCIONALES">Funcionales</option>
+              <option value="CASOS NEGATIVOS">Negativos</option>
+              <option value="SEGURIDAD">Seguridad</option>
+              <option value="INTEGRACION">Integración</option>
+              <option value="NO FUNCIONALES">No Funcionales</option>
+              <option value="CARGA">Carga</option>
+              <option value="COMPATIBILIDAD">Compatibilidad</option>
+              <option value="RESILIENCIA">Resiliencia</option>
+            </select>
+          </div>
+          <!-- Severidad -->
+          <div class="exec-fg">
+            <label>Severidad</label>
+            <select id="execFilterSev" onchange="applyExecFilters()">
+              <option value="">Todas</option>
+              <option value="Bloqueante">Bloqueante</option>
+              <option value="Crítico">Crítico</option>
+              <option value="Tolerable">Tolerable</option>
+              <option value="Interfaz de usuario">Interfaz</option>
+            </select>
+          </div>
+          <!-- Resultado -->
+          <div class="exec-fg">
+            <label>Resultado</label>
+            <select id="execFilterResult" onchange="applyExecFilters()">
+              <option value="">Todos</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="CUMPLE">CUMPLE</option>
+              <option value="NO CUMPLE">NO CUMPLE</option>
+            </select>
+          </div>
+          <!-- Acciones -->
+          <div class="exec-fg exec-fg--actions">
+            <button class="ef-btn ef-btn--ghost" onclick="clearExecFilters()">Limpiar</button>
+            <button class="ef-btn ef-btn--primary" onclick="exportActiveBookExcel()">Exportar este Excel</button>
+          </div>
+        </div>
+
+        <!-- Tabla de casos de este Excel -->
+        <div class="exec-table-wrap">
+          <table class="exec-table">
+            <thead>
+              <tr>
+                <th style="width:115px;">ID</th>
+                <th>Caso de Prueba</th>
+                <th style="width:120px;">Tipo</th>
+                <th style="width:100px;">Severidad</th>
+                <th style="width:100px;">Estado</th>
+                <th style="width:155px; text-align:center;">Resultado</th>
+              </tr>
+            </thead>
+            <tbody id="executionGrid">
+              <tr>
+                <td colspan="6" class="exec-empty-state">
+                  <div class="loading-dots"><span></span><span></span><span></span></div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ════════════════════════════════════════════
+         MÓDULO 4: BASE DE CONOCIMIENTO
+    ════════════════════════════════════════════ -->
+    <section class="module" id="moduleDocuments" style="padding:0;gap:0;">
+
+      <!-- Layout 2 columnas -->
+      <div class="kb-layout">
+
+        <!-- ── Panel Lateral Izquierdo ──────────────────────── -->
+        <aside class="kb-sidebar">
+          <!-- Info banner compact -->
+          <div class="kb-info-tip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>La IA usa estos documentos como contexto para generar mejores casos de prueba</span>
+          </div>
+
+          <!-- Zona de carga compacta -->
+          <div class="kb-upload-area" id="uploadZone">
+            <input type="file" id="fileInput" hidden accept=".pdf,.docx,.txt,.xlsx,.xls,.md" onchange="uploadDocument(this.files[0])" />
+            <div class="kb-upload-drop" onclick="document.getElementById('fileInput').click()" id="kbDropArea">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <p class="kb-drop-title">Arrastra o <span>haz clic</span></p>
+              <p class="kb-drop-hint">PDF · DOCX · XLSX · TXT · MD</p>
+            </div>
+          </div>
+
+          <!-- Categoría -->
+          <div class="kb-section">
+            <p class="kb-section-label">Categoría del documento</p>
+            <div class="kb-cat-list" id="categoryGroup">
+              <label class="kb-cat-item">
+                <input type="radio" name="category" value="mtr" id="catMTR" />
+                <span class="kb-cat-icon">📋</span>
+                <span>MTR</span>
+              </label>
+              <label class="kb-cat-item">
+                <input type="radio" name="category" value="requirements" checked id="catReq" />
+                <span class="kb-cat-icon">📄</span>
+                <span>Requerimientos</span>
+              </label>
+              <label class="kb-cat-item">
+                <input type="radio" name="category" value="templates" id="catTemplates" />
+                <span class="kb-cat-icon">🗂</span>
+                <span>Plantillas</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Stats compactas -->
+          <div class="kb-stats" id="kbStats">
+            <div class="kb-stat-item">
+              <span class="kb-stat-val" id="kbStatTotal">0</span>
+              <span class="kb-stat-lbl">Documentos</span>
+            </div>
+            <div class="kb-stat-item">
+              <span class="kb-stat-val" id="kbStatChunks">0</span>
+              <span class="kb-stat-lbl">Fragmentos</span>
+            </div>
+          </div>
+        </aside>
+
+        <!-- ── Panel Principal: Tabla de documentos ──────────── -->
+        <main class="kb-main">
+          <!-- Header principal -->
+          <div class="kb-main-header">
+            <div>
+              <h1 class="kb-title">Base de Conocimiento</h1>
+              <p class="kb-subtitle">Documentos indexados del proyecto <strong id="kbProjectName"></strong></p>
+            </div>
+            <!-- Barra búsqueda + filtro -->
+            <div class="kb-controls">
+              <div class="kb-search-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" class="kb-search" id="kbSearchInput" placeholder="Buscar documento..." oninput="filterDocuments()" />
+              </div>
+              <select class="kb-filter-select" id="kbCatFilter" onchange="filterDocuments()">
+                <option value="">Todas las categorías</option>
+                <option value="mtr">MTR</option>
+                <option value="requirements">Requerimientos</option>
+                <option value="templates">Plantillas</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Tabla compacta de documentos -->
+          <div class="kb-table-wrap">
+            <table class="kb-table">
+              <thead>
+                <tr>
+                  <th style="width:40px;">Tipo</th>
+                  <th>Nombre del archivo</th>
+                  <th>Categoría</th>
+                  <th>Tamaño</th>
+                  <th>Fragmentos</th>
+                  <th>Subido</th>
+                  <th style="width:70px;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="documentsGrid">
+                <tr>
+                  <td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">
+                    <div class="loading-dots"><span></span><span></span><span></span></div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         MÓDULO 5: DASHBOARD — ANALYTICS PRO
+    ════════════════════════════════════════════ -->
+    <section class="module" id="moduleDashboard">
+
+      <!-- ── Header Analytics ──────────────────────────────────── -->
+      <div class="dash-pro-header">
+        <div class="dash-pro-header-left">
+          <div>
+            <h1 class="dash-pro-title">Panel de Analíticas y Calidad</h1>
+            <p class="dash-pro-subtitle">Proyecto: <span id="dashProjectName" class="dash-project-name">—</span></p>
+          </div>
+        </div>
+        <div class="dash-pro-header-right">
+          <div class="dash-status-pill">
+            <span class="dash-pill-dot"></span>
+            <span>RAG ACTIVO</span>
+          </div>
+          <button class="dash-pro-refresh-btn" onclick="loadDashboard()" id="dashRefreshBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Actualizar
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Barra de Filtros ───────────────────────────────────── -->
+      <div class="dash-filters-bar">
+        <!-- Búsqueda en tiempo real -->
+        <div class="dash-filter-group" style="min-width: 170px;">
+          <label class="dash-filter-label">Buscar en Casos</label>
+          <div class="dash-search-input-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" class="dash-filter-search" id="dashFilterSearch" placeholder="Título, ID, módulo..." oninput="applyDashFilters()" />
+          </div>
+        </div>
+        <!-- Filtro por documento/fuente -->
+        <div class="dash-filter-group">
+          <label class="dash-filter-label">Documento Fuente</label>
+          <select class="dash-filter-select" id="dashFilterDoc" onchange="applyDashFilters()">
+            <option value="">Todos los documentos</option>
+          </select>
+        </div>
+        <!-- Filtro por tipo de prueba -->
+        <div class="dash-filter-group">
+          <label class="dash-filter-label">Tipo de Prueba</label>
+          <select class="dash-filter-select" id="dashFilterType" onchange="applyDashFilters()">
+            <option value="">Todos los tipos</option>
+            <option value="FUNCIONALES">Funcionales</option>
+            <option value="CASOS NEGATIVOS">Casos Negativos</option>
+            <option value="SEGURIDAD">Seguridad</option>
+            <option value="INTEGRACION">Integración</option>
+            <option value="NO FUNCIONALES">No Funcionales</option>
+            <option value="CARGA">Carga</option>
+            <option value="ESTRESS">Estrés</option>
+            <option value="COMPATIBILIDAD">Compatibilidad</option>
+            <option value="RESILIENCIA">Resiliencia</option>
+          </select>
+        </div>
+        <!-- Filtro por severidad -->
+        <div class="dash-filter-group">
+          <label class="dash-filter-label">Severidad</label>
+          <select class="dash-filter-select" id="dashFilterSev" onchange="applyDashFilters()">
+            <option value="">Todas</option>
+            <option value="Bloqueante">Bloqueante</option>
+            <option value="Crítico">Crítico</option>
+            <option value="Tolerable">Tolerable</option>
+            <option value="Interfaz de usuario">Interfaz</option>
+          </select>
+        </div>
+        <!-- Filtro por resultado -->
+        <div class="dash-filter-group">
+          <label class="dash-filter-label">Resultado</label>
+          <select class="dash-filter-select" id="dashFilterResult" onchange="applyDashFilters()">
+            <option value="">Todos</option>
+            <option value="CUMPLE">CUMPLE</option>
+            <option value="NO CUMPLE">NO CUMPLE</option>
+            <option value="Pendiente">Pendiente</option>
+          </select>
+        </div>
+        <!-- Filtro por fecha desde -->
+        <div class="dash-filter-group">
+          <label class="dash-filter-label">Desde</label>
+          <input type="date" class="dash-filter-date" id="dashFilterDateFrom" onchange="applyDashFilters()" />
+        </div>
+        <!-- Filtro por fecha hasta -->
+        <div class="dash-filter-group">
+          <label class="dash-filter-label">Hasta</label>
+          <input type="date" class="dash-filter-date" id="dashFilterDateTo" onchange="applyDashFilters()" />
+        </div>
+        <!-- Limpiar filtros -->
+        <button class="dash-filter-clear" onclick="clearDashFilters()" title="Limpiar filtros">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+          Limpiar
+        </button>
+        <!-- Resultado del filtro activo -->
+        <div class="dash-filter-count" id="dashFilterCount"></div>
+      </div>
+
+      <!-- ── Fila 1: KPI Cards con Sparklines ──────────────────── -->
+      <div class="dash-spark-grid" id="metricsGrid">
+        <!-- Generadas por loadDashboard() -->
+      </div>
+
+      <!-- ── Fila 2: Gráfica Principal de Tendencia ────────────── -->
+      <div class="dash-main-chart-card">
+        <div class="dash-chart-header">
+          <div>
+            <h2 class="dash-chart-title">Tendencia de Ejecución & Curva de Calidad</h2>
+            <p class="dash-chart-desc">Distribución acumulada y avance del plan de pruebas</p>
+          </div>
+          <div class="dash-chart-legend">
+            <div class="dash-legend-item"><span class="dash-legend-dot" style="background:#00e5ff;"></span><span>Total Casos</span></div>
+            <div class="dash-legend-item"><span class="dash-legend-dot" style="background:#10b981;"></span><span>CUMPLE</span></div>
+            <div class="dash-legend-item"><span class="dash-legend-dot" style="background:#ef4444;"></span><span>NO CUMPLE</span></div>
+          </div>
+        </div>
+        <div class="dash-chart-body" id="dashMainChartContainer">
+          <!-- Gráfica SVG generada dinámicamente -->
+        </div>
+      </div>
+
+      <!-- ── Fila 3: Histogramas y Distribución ────────────────── -->
+      <div class="dash-two-col-grid">
+        <!-- Histograma por Tipo -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <h3 class="dash-card-title">Distribución por Tipo de Prueba</h3>
+            <span class="dash-card-badge" id="dashTypeTotalBadge">0 Tipos</span>
+          </div>
+          <div class="dash-barchart-container" id="typeDistribution">
+            <!-- Barras verticales SVG dinámicas -->
+          </div>
+        </div>
+
+        <!-- Defectos por Severidad -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <h3 class="dash-card-title">Defectos por Nivel de Severidad</h3>
+            <span class="dash-card-badge dash-badge-alert" id="dashDefectsTotalBadge">0 Defectos</span>
+          </div>
+          <div class="dash-severity-container" id="severityDistribution">
+            <!-- Barras horizontales estilizadas -->
+          </div>
+        </div>
+      </div>
+
+      <!-- IDs legacy compatibles (ocultos) -->
+      <span id="mTotalCases" style="display:none"></span>
+      <span id="mCumple" style="display:none"></span>
+      <span id="mNoCumple" style="display:none"></span>
+      <span id="mPassRate" style="display:none"></span>
+      <span id="execProgress" style="display:none"></span>
+      <span id="passProgress" style="display:none"></span>
+      <div id="execProgressBar" style="display:none"></div>
+      <div id="passProgressBar" style="display:none"></div>
+      <div id="dashProgressSection" style="display:none"></div>
+      <div id="dashLiveFeed" style="display:none"></div>
+    </section>
+
+
+  </main>
+
+  <!-- Controles de IA (ocultos — solo usados por JS) -->
+  <div style="display:none;">
+    <button id="ttsToggleBtn" onclick="if(window.PRQAVoice)PRQAVoice.toggleTTS()">🔊</button>
+    <label><input type="checkbox" id="useKnowledgeBase" checked /></label>
+    <div id="chatMessages"></div>
+    <textarea id="chatInput"></textarea>
+    <button id="sendBtn" onclick="sendMessage()"></button>
+  </div>
+
+  <!-- SVG Filter: textura de nube para el energy orb -->
+  <svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+    <defs>
+      <filter id="cloudTexture" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.62 0.52" numOctaves="4" seed="8" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="11" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- ═══ BARRA INFERIOR — Energy Cloud ══ -->
+  <div class="jarvis-talk-bar" id="jarvisTalkBar">
+
+    <!-- EQ bars izquierda (45 barras panorámicas) -->
+    <div class="jtb-dots jtb-dots-left">
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <!-- Centro: Energy Cloud Orb -->
+    <div class="jtb-center-area" id="jtbCenter" onclick="PRQAVoice.toggleMic()">
+      <div class="energy-cloud" id="jarvisEnergyCloud">
+        <div class="ec-blob ec-blob-1"></div>
+        <div class="ec-blob ec-blob-2"></div>
+        <div class="ec-blob ec-blob-3"></div>
+        <div class="ec-ring ec-ring-1"></div>
+        <div class="ec-ring ec-ring-2"></div>
+        <div class="ec-core"></div>
+      </div>
+      <!-- Estado: sublabel -->
+      <span class="jtb-sublabel" id="jtbSubLabel" style="font-size:0.55rem;opacity:0.6;letter-spacing:0.08em;margin-top:0.25rem;"></span>
+    </div>
+
+    <!-- EQ bars derecha (45 barras panorámicas) -->
+    <div class="jtb-dots jtb-dots-right">
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <!-- Derecha: botones de acción -->
+    <div class="jtb-right" style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
+      <!-- Botón DETENER — siempre visible, se activa cuando la IA procesa -->
+      <button id="tpStopBtn" onclick="stopAI()" title="Detener respuesta de CIEL AI"
+        style="background:rgba(100,100,120,0.12);color:rgba(180,180,200,0.3);border:1px solid rgba(180,180,200,0.15);font-size:0.65rem;font-weight:800;padding:4px 10px;border-radius:6px;cursor:not-allowed;display:inline-flex;align-items:center;gap:5px;transition:all 0.2s;white-space:nowrap;letter-spacing:0.04em;"
+        disabled>
+        ⏹️ DETENER
+      </button>
+      <!-- Botón silenciar voz -->
+      <button id="tpMuteBtn" onclick="toggleTTS()" title="Silenciar / Activar voz"
+        style="background:rgba(100,100,120,0.12);color:rgba(180,180,200,0.5);border:1px solid rgba(180,180,200,0.15);font-size:0.7rem;padding:4px 8px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;transition:all 0.2s;">
+        🔊
+      </button>
+      <!-- Botón teclado (alternativa de escritura) -->
+      <button class="jtb-text-input-btn" id="jtbTextInputBtn" onclick="toggleTextInput()" title="Escribir mensaje con teclado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <rect x="2" y="4" width="20" height="16" rx="2" ry="2"/>
+          <line x1="6" y1="8" x2="6.01" y2="8"/>
+          <line x1="10" y1="8" x2="10.01" y2="8"/>
+          <line x1="14" y1="8" x2="14.01" y2="8"/>
+          <line x1="18" y1="8" x2="18.01" y2="8"/>
+          <line x1="6" y1="12" x2="6.01" y2="12"/>
+          <line x1="10" y1="12" x2="10.01" y2="12"/>
+          <line x1="14" y1="12" x2="14.01" y2="12"/>
+          <line x1="18" y1="12" x2="18.01" y2="12"/>
+          <line x1="7" y1="16" x2="17" y2="16"/>
+        </svg>
+      </button>
+      <!-- Botón transcripción -->
+      <button class="jtb-transcript-toggle" id="jtbTranscriptToggle" onclick="toggleTranscriptPopup()" title="Ver transcripción">
+        <span class="jlp-title-dot" style="width:7px;height:7px;flex-shrink:0;"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        TRANSCRIPCIÓN
+      </button>
+    </div>
+  </div>
+
+  <!-- Input de texto flotante (alternativa a voz) -->
+  <div class="text-input-bar hidden" id="textInputBar">
+    <div class="tib-inner">
+      <input type="text" id="tibInput" class="tib-input" placeholder="Escribe tu mensaje a CIEL AI..." onkeydown="if(event.key==='Enter') sendTextToAI()"/>
+      <button class="tib-send" onclick="sendTextToAI()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+      <button class="tib-close" onclick="toggleTextInput()">✕</button>
+    </div>
+  </div>
+
+  <!-- ═══ POPUP DE TRANSCRIPCIÓN — ventana flotante ═══ -->
+  <div class="transcript-popup hidden" id="transcriptPopup">
+    <div class="tp-header">
+      <span class="tp-title">
+        <span class="jlp-title-dot"></span>
+        CIEL AI · TRANSCRIPCIÓN
+      </span>
+      <div class="tp-controls" style="display:flex;align-items:center;gap:6px;">
+        <button onclick="clearJarvisLog()" title="Limpiar historial" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);opacity:0.6;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+        </button>
+        <button onclick="toggleTranscriptPopup()" title="Cerrar" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);opacity:0.6;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">✕</button>
+      </div>
+    </div>
+    <div class="tp-body" id="jarvisLogBody">
+      <div class="jlp-line jlp-system">
+        <span class="jlp-ts" id="jlpBootTs">──:──:──</span>
+        <span class="jlp-tag jlp-tag-sys">SYS</span>
+        <span class="jlp-text">CIEL AI online · Sistema inicializado</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL DE EJECUCIÓN — Diseño Premium ══════════════════ -->
+  <div class="modal-overlay hidden" id="executionModal">
+    <div class="modal" id="executionModalContent" style="max-width:560px;width:100%;">
+
+      <!-- Encabezado del modal -->
+      <div class="modal-header" style="padding:1.4rem 1.6rem;gap:1rem;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:0.3rem;font-weight:600;">Registrar Resultado</div>
+          <h3 class="modal-title" id="modalTestCaseTitle" style="font-size:1rem;line-height:1.3;"></h3>
+        </div>
+        <button class="modal-close" onclick="closeExecutionModal()" style="flex-shrink:0;">✕</button>
+      </div>
+
+      <!-- Badge del ID del caso -->
+      <div style="padding:0 1.6rem;margin-top:0;">
+        <span class="modal-case-id" id="modalCaseId"></span>
+      </div>
+
+      <div class="modal-body" style="padding:1.25rem 1.6rem;">
+
+        <!-- Sección: Resultado del caso -->
+        <div style="margin-bottom:1.25rem;">
+          <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:0.75rem;">¿El sistema respondió correctamente?</div>
+          <div class="result-buttons">
+            <button class="result-btn cumple" id="btnCumple" onclick="selectResult('CUMPLE')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="26" height="26">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              CUMPLE
+            </button>
+            <button class="result-btn no-cumple" id="btnNoCumple" onclick="selectResult('NO CUMPLE')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="26" height="26">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              NO CUMPLE
+            </button>
+          </div>
+        </div>
+
+        <!-- Campos adicionales para defectos — solo visible al seleccionar NO CUMPLE -->
+        <div class="modal-fields" id="noCumpleFields" style="display:none;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:var(--radius-md);padding:1rem;margin-bottom:1rem;">
+          <div style="font-size:0.72rem;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.75rem;">
+            ⚠ Información del Defecto
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-size:0.7rem;">Severidad</label>
+              <select class="form-input" id="execSeverity" style="font-size:0.78rem;padding:0.45rem 0.6rem;">
+                <option value="Tolerable">Tolerable</option>
+                <option value="Interfaz de usuario">Interfaz UI</option>
+                <option value="Crítico">Crítico</option>
+                <option value="Bloqueante">Bloqueante</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-size:0.7rem;">Tipo</label>
+              <select class="form-input" id="execIncidentType" style="font-size:0.78rem;padding:0.45rem 0.6rem;">
+                <option value="Error">Error</option>
+                <option value="Mejora">Mejora</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-size:0.7rem;">Estado</label>
+              <select class="form-input" id="execIncidentState" style="font-size:0.78rem;padding:0.45rem 0.6rem;">
+                <option value="Abierto">Abierto</option>
+                <option value="Re-abierto">Re-abierto</option>
+                <option value="Cerrado">Cerrado</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notas en ancho completo -->
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Notas / Observaciones</label>
+          <textarea class="form-textarea" id="execNotes" rows="3"
+            placeholder="Describe el resultado o el defecto encontrado..."></textarea>
+        </div>
+      </div>
+
+      <!-- Footer del modal -->
+      <div class="modal-footer" style="padding:1rem 1.6rem;border-top:1px solid var(--border-subtle);">
+        <button class="btn-ghost" onclick="closeExecutionModal()">Cancelar</button>
+        <button class="btn-primary" id="saveExecutionBtn" onclick="saveExecution()" disabled
+          style="min-width:160px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Guardar Resultado
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Modal de edición de documento -->
+  <div class="modal-overlay hidden" id="editDocModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Editar Documento</h3>
+        <button class="modal-close" onclick="closeEditDocModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editDocId" />
+        <div class="form-group">
+          <label class="form-label" for="editDocName">Nombre del Archivo</label>
+          <input type="text" class="form-input" id="editDocName" placeholder="ej. Requerimientos.pdf" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editDocCategory">Categoría</label>
+          <select class="form-input" id="editDocCategory">
+            <option value="mtr">MTR (Manual Test Requirement)</option>
+            <option value="requirements">Requerimientos</option>
+            <option value="templates">Plantillas</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeEditDocModal()">Cancelar</button>
+        <button class="btn-primary" onclick="saveEditDoc()">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de creación de proyecto -->
+  <div class="modal-overlay hidden" id="createProjectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Crear Nuevo Proyecto</h3>
+        <button class="modal-close" onclick="closeCreateProjectModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="newProjectName">Nombre del Proyecto</label>
+          <input type="text" class="form-input" id="newProjectName" placeholder="ej. Salud Total, CRM, Portal Clientes"
+            onkeydown="if(event.key==='Enter')submitCreateProject()" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCreateProjectModal()">Cancelar</button>
+        <button class="btn-primary" onclick="submitCreateProject()">Crear Proyecto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal renombrar proyecto -->
+  <div class="modal-overlay hidden" id="renameProjectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Renombrar Proyecto</h3>
+        <button class="modal-close" onclick="closeRenameProjectModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Proyecto actual: <strong id="renameProjectCurrent" style="color:var(--text-primary);"></strong></p>
+        <div class="form-group">
+          <label class="form-label" for="renameProjectInput">Nuevo nombre</label>
+          <input type="text" class="form-input" id="renameProjectInput" placeholder="Nuevo nombre del proyecto"
+            onkeydown="if(event.key==='Enter')submitRenameProject()" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeRenameProjectModal()">Cancelar</button>
+        <button class="btn-primary" onclick="submitRenameProject()">Guardar Nombre</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal eliminar proyecto -->
+  <div class="modal-overlay hidden" id="deleteProjectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color:var(--accent-danger);">Eliminar Proyecto</h3>
+        <button class="modal-close" onclick="closeDeleteProjectModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:1rem;text-align:center;padding:0.5rem 0;">
+          <div style="width:52px;height:52px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-danger)" stroke-width="2" width="24" height="24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </div>
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">¿Eliminar "<span id="deleteProjectName"></span>"?</p>
+            <p style="font-size:0.8rem;color:var(--text-muted);">Esta acción eliminará el proyecto de la lista. Los documentos y casos de prueba indexados no se borrarán del servidor.</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeDeleteProjectModal()">Cancelar</button>
+        <button class="btn-primary" style="background:var(--accent-danger);border-color:var(--accent-danger);" onclick="submitDeleteProject()">Sí, Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  </div><!-- end .app-layout -->
+
+  <script src="/static/js/voice.js?v=1.0.0"></script>
+  <script src="/static/js/app.js?v=4.0.0"></script>
+
+  <!-- HUD Clock + Boot status script -->
+  <script>
+    // HUD Clock
+    function updateHudClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2,'0');
+      const m = String(now.getMinutes()).padStart(2,'0');
+      const s = String(now.getSeconds()).padStart(2,'0');
+      const el = document.getElementById('hudClock');
+      if (el) el.textContent = `${h}:${m}:${s}`;
+    }
+    updateHudClock();
+    setInterval(updateHudClock, 1000);
+
+    // Boot status messages
+    const bootMessages = [
+      'Inicializando sistema...',
+      'Cargando módulos de IA...',
+      'Conectando con Ollama...',
+      'Base de conocimiento lista.',
+      'Sistema operativo.'
+    ];
+    let _bIdx = 0;
+    const _bStatus = document.getElementById('bootStatus');
+    const _bInterval = setInterval(() => {
+      _bIdx++;
+      if (_bIdx < bootMessages.length && _bStatus) {
+        _bStatus.textContent = bootMessages[_bIdx];
+      } else {
+        clearInterval(_bInterval);
+      }
+    }, 380);
+
+    // Init voice module after page loads
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.PRQAVoice) PRQAVoice.init();
+    });
+  </script>
+
+  <!-- ══════════════════════════════════════════════════
+       MÓDULO 5: TEMPORIZADOR DE EJECUCIÓN DE PRUEBAS
+  ══════════════════════════════════════════════════ -->
+  <script>
+  // ─── Timer Module State ───────────────────────────────────────────
+  const timerState = {
+    sessionId: null,
+    startedAt: null,
+    isRunning: false,
+    isPaused: false,
+    elapsed: 0,          // seconds shown on display
+    serverOffset: 0,     // drift correction
+    interval: null,
+    selectedCaseId: null,
+    selectedCaseTitle: '',
+    testerName: '',
+  };
+
+  // ─── Format helpers ───────────────────────────────────────────────
+  function fmtSeconds(s) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    const ms = Math.floor((s % 1) * 10);
+    if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${ms}`;
+  }
+
+  function fmtSecondsShort(s) {
+    if (!s && s !== 0) return '—';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  }
+
+  // ─── Load timer module ────────────────────────────────────────────
+  async function loadTimerModule() {
+    const proj = window.currentProject || 'Proyectos';
+    await loadTimerExcelFiles(proj);
+    await loadTimerCaseList(proj);
+    await loadTimerStats(proj);
+    await loadTimerHistory(proj);
+  }
+
+  async function loadTimerExcelFiles(project) {
+    try {
+      const res = await fetch(`/api/test-cases/exports?project_name=${encodeURIComponent(project)}`);
+      const files = await res.json();
+      const sel = document.getElementById('timerExcelSelect');
+      sel.innerHTML = '<option value="">— Todas las matrices de prueba —</option>';
+      if (files && files.length) {
+        files.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = f.module || f.filename;
+          opt.dataset.filename = f.filename;
+          opt.dataset.module = f.module || '';
+          opt.textContent = `📄 ${f.filename} (${f.module || 'General'})`;
+          sel.appendChild(opt);
+        });
+      }
+    } catch(e) { console.error('Error loading Excel files:', e); }
+  }
+
+  async function onTimerExcelChange() {
+    const proj = window.currentProject || 'Proyectos';
+    const sel = document.getElementById('timerExcelSelect');
+    const selectedModule = sel.value;
+    await loadTimerCaseList(proj, selectedModule);
+  }
+
+  async function loadTimerCaseList(project, filterModule = '') {
+    try {
+      const res = await fetch(`/api/test-cases?project_name=${encodeURIComponent(project)}`);
+      let cases = await res.json();
+
+      if (filterModule) {
+        cases = cases.filter(c => c.module === filterModule || c.module?.toLowerCase() === filterModule.toLowerCase());
+      }
+
+      const sel = document.getElementById('timerCaseSelect');
+      sel.innerHTML = '<option value="">— Selecciona un caso de prueba —</option>';
+      cases.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.db_id;
+        opt.dataset.title = c.title;
+        opt.dataset.module = c.module || '';
+        opt.dataset.type = c.test_type || '';
+        const badge = c.result === 'CUMPLE' ? '✅' : c.result === 'NO CUMPLE' ? '❌' : '⏳';
+        opt.textContent = `${badge} [${c.case_id}] ${c.title.substring(0,55)}${c.title.length>55?'…':''}`;
+        sel.appendChild(opt);
+      });
+      document.getElementById('timerCaseCount').textContent = `${cases.length} casos disponibles`;
+    } catch(e) { console.error('Error loading cases:', e); }
+  }
+
+  function exportTimerExcel() {
+    const proj = window.currentProject || 'Proyectos';
+    window.location.href = `/api/test-cases/export/excel?project_name=${encodeURIComponent(proj)}`;
+  }
+
+  function onTimerCaseChange() {
+    const sel = document.getElementById('timerCaseSelect');
+    const opt = sel.options[sel.selectedIndex];
+    timerState.selectedCaseId = sel.value || null;
+    timerState.selectedCaseTitle = opt?.dataset?.title || '';
+    const info = document.getElementById('timerCaseInfo');
+    if (sel.value && opt) {
+      info.innerHTML = `
+        <span class="timer-badge">${opt.dataset.type || 'FUNCIONAL'}</span>
+        <span class="timer-badge-mod">${opt.dataset.module || 'General'}</span>
+        <span style="font-size:0.8rem;color:var(--text-muted);">${timerState.selectedCaseTitle}</span>`;
+      info.style.display = 'flex';
+    } else {
+      info.style.display = 'none';
+    }
+    // Reset timer display
+    if (!timerState.isRunning) {
+      document.getElementById('timerDisplay').textContent = '00:00.0';
+      setTimerControlState('idle');
+    }
+  }
+
+  // ─── Timer controls ───────────────────────────────────────────────
+  async function timerAction_start() {
+    if (!timerState.selectedCaseId) {
+      showToast('Selecciona un caso de prueba primero', 'warning'); return;
+    }
+    const tester = document.getElementById('timerTesterInput').value.trim();
+    timerState.testerName = tester;
+    try {
+      const res = await fetch('/api/timer/start', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          test_case_id: timerState.selectedCaseId,
+          tester_name: tester || 'Tester',
+          project_name: window.currentProject || 'Proyectos'
+        })
+      });
+      const data = await res.json();
+      timerState.sessionId  = data.session_id;
+      timerState.startedAt  = Date.now();
+      timerState.elapsed    = 0;
+      timerState.isRunning  = true;
+      timerState.isPaused   = false;
+      startLocalTick();
+      setTimerControlState('running');
+      showToast('⏱ Cronómetro iniciado', 'info');
+    } catch(e) { showToast('Error al iniciar el timer', 'error'); }
+  }
+
+  async function timerAction_pause() {
+    try {
+      await fetch(`/api/timer/pause?session_id=${timerState.sessionId}`, {method:'POST'});
+      timerState.isPaused = true;
+      stopLocalTick();
+      setTimerControlState('paused');
+      document.getElementById('timerDisplay').classList.add('timer-paused');
+      showToast('⏸ En pausa', 'info');
+    } catch(e) { showToast('Error al pausar', 'error'); }
+  }
+
+  async function timerAction_resume() {
+    try {
+      const res = await fetch(`/api/timer/resume?session_id=${timerState.sessionId}`, {method:'POST'});
+      const data = await res.json();
+      timerState.elapsed  = data.elapsed_seconds;
+      timerState.startedAt = Date.now() - timerState.elapsed * 1000;
+      timerState.isPaused = false;
+      startLocalTick();
+      setTimerControlState('running');
+      document.getElementById('timerDisplay').classList.remove('timer-paused');
+      showToast('▶ Reanudado', 'info');
+    } catch(e) { showToast('Error al reanudar', 'error'); }
+  }
+
+  function timerAction_stopPrompt() {
+    if (!timerState.isRunning) return;
+    // Show result form
+    document.getElementById('timerResultPanel').style.display = 'block';
+    document.getElementById('timerResultPanel').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  async function timerAction_confirmStop(result) {
+    const notes    = document.getElementById('timerNotesInput').value.trim();
+    const severity = document.getElementById('timerSeveritySelect').value;
+    const incType  = document.getElementById('timerIncTypeSelect').value;
+    if (result === 'NO CUMPLE' && !notes) {
+      showToast('Ingresa la descripción del incidente', 'warning'); return;
+    }
+    try {
+      const res = await fetch('/api/timer/stop', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          session_id: timerState.sessionId,
+          result, notes,
+          severity: result === 'NO CUMPLE' ? severity : null,
+          incident_type: result === 'NO CUMPLE' ? incType : null,
+          incident_state: 'Abierto'
+        })
+      });
+      const data = await res.json();
+      stopLocalTick();
+      timerState.isRunning = false;
+      timerState.sessionId = null;
+      setTimerControlState('idle');
+      document.getElementById('timerResultPanel').style.display = 'none';
+      document.getElementById('timerDisplay').classList.remove('timer-paused');
+
+      const t = fmtSecondsShort(data.execution_time_seconds);
+      const emoji = result === 'CUMPLE' ? '✅' : '❌';
+      showToast(`${emoji} ${result} — Tiempo registrado: ${t}`, result === 'CUMPLE' ? 'success' : 'error');
+
+      // Reload stats & history
+      const proj = window.currentProject || 'Proyectos';
+      await loadTimerStats(proj);
+      await loadTimerHistory(proj);
+      await loadTimerCaseList(proj);
+      // Clear form
+      document.getElementById('timerNotesInput').value = '';
+    } catch(e) { showToast('Error al guardar el resultado', 'error'); }
+  }
+
+  // ─── Local tick (JS side display) ────────────────────────────────
+  function startLocalTick() {
+    stopLocalTick();
+    const base = timerState.startedAt;
+    timerState.interval = setInterval(() => {
+      const secs = (Date.now() - base) / 1000;
+      document.getElementById('timerDisplay').textContent = fmtSeconds(secs);
+    }, 100);
+  }
+
+  function stopLocalTick() {
+    if (timerState.interval) { clearInterval(timerState.interval); timerState.interval = null; }
+  }
+
+  // ─── UI state machine ─────────────────────────────────────────────
+  function setTimerControlState(state) {
+    const btnStart  = document.getElementById('btnTimerStart');
+    const btnPause  = document.getElementById('btnTimerPause');
+    const btnResume = document.getElementById('btnTimerResume');
+    const btnStop   = document.getElementById('btnTimerStop');
+    const display   = document.getElementById('timerDisplay');
+    const statusDot = document.getElementById('timerStatusDot');
+    const statusLbl = document.getElementById('timerStatusLabel');
+
+    btnStart.style.display  = state === 'idle'    ? 'flex' : 'none';
+    btnPause.style.display  = state === 'running' ? 'flex' : 'none';
+    btnResume.style.display = state === 'paused'  ? 'flex' : 'none';
+    btnStop.style.display   = state !== 'idle'    ? 'flex' : 'none';
+
+    display.className = 'timer-display ' + (state === 'running' ? 'timer-running' : state === 'paused' ? 'timer-paused' : '');
+    if (state === 'idle')    { statusDot.className='timer-status-dot idle';    statusLbl.textContent='Listo'; }
+    if (state === 'running') { statusDot.className='timer-status-dot running'; statusLbl.textContent='En ejecución…'; }
+    if (state === 'paused')  { statusDot.className='timer-status-dot paused';  statusLbl.textContent='En pausa'; }
+  }
+
+  // ─── Stats + History ──────────────────────────────────────────────
+  async function loadTimerStats(project) {
+    try {
+      const res = await fetch(`/api/timer/stats?project_name=${encodeURIComponent(project)}`);
+      const data = await res.json();
+      document.getElementById('timerStatTotal').textContent  = data.total_executed || 0;
+      document.getElementById('timerStatAvg').textContent    = fmtSecondsShort(data.avg_seconds);
+      document.getElementById('timerStatTotalT').textContent = fmtSecondsShort(data.total_seconds);
+      document.getElementById('timerStatMin').textContent    = fmtSecondsShort(data.min_seconds);
+      document.getElementById('timerStatMax').textContent    = fmtSecondsShort(data.max_seconds);
+
+      // Bar chart by RF
+      const rfContainer = document.getElementById('timerRfBars');
+      rfContainer.innerHTML = '';
+      if (data.by_rf && data.by_rf.length) {
+        const maxT = Math.max(...data.by_rf.map(r => r.total_seconds));
+        data.by_rf.slice(0,8).forEach(r => {
+          const pct = maxT > 0 ? (r.total_seconds / maxT * 100).toFixed(1) : 0;
+          rfContainer.innerHTML += `
+            <div class="rf-bar-row">
+              <span class="rf-bar-label" title="${r.rf}">${r.rf.substring(0,20)}${r.rf.length>20?'…':''}</span>
+              <div class="rf-bar-track"><div class="rf-bar-fill" style="width:${pct}%"></div></div>
+              <span class="rf-bar-val">${fmtSecondsShort(r.avg_seconds)} ⌀ · ${r.count} caso${r.count!==1?'s':''}</span>
+            </div>`;
+        });
+      } else {
+        rfContainer.innerHTML = '<p class="timer-empty">Sin datos de ejecución aún.</p>';
+      }
+
+      // Type pills
+      const typeContainer = document.getElementById('timerTypePills');
+      typeContainer.innerHTML = '';
+      if (data.by_type && data.by_type.length) {
+        data.by_type.forEach(t => {
+          typeContainer.innerHTML += `<div class="type-pill"><span>${t.type}</span><strong>${fmtSecondsShort(t.avg_seconds)}</strong><small>${t.count} caso${t.count!==1?'s':''}</small></div>`;
+        });
+      }
+    } catch(e) { console.error('Error loading timer stats', e); }
+  }
+
+  async function loadTimerHistory(project) {
+    try {
+      const res = await fetch(`/api/timer/sessions?project_name=${encodeURIComponent(project)}`);
+      const rows = await res.json();
+      const tbody = document.getElementById('timerHistoryBody');
+      tbody.innerHTML = '';
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="timer-empty" style="text-align:center;padding:2rem;">Sin sesiones registradas aún.</td></tr>';
+        return;
+      }
+      rows.forEach(r => {
+        const t = fmtSecondsShort(r.execution_time_seconds);
+        const res_cls = r.result === 'CUMPLE' ? 'badge-cumple' : r.result === 'NO CUMPLE' ? 'badge-no-cumple' : 'badge-pending';
+        const res_txt = r.result || '—';
+        const date = r.stopped_at ? new Date(r.stopped_at).toLocaleString('es-CO',{hour12:false}) : '—';
+        tbody.innerHTML += `
+          <tr>
+            <td><code style="font-size:0.75rem;">${r.case_id || '—'}</code></td>
+            <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${r.title}">${r.title}</td>
+            <td>${r.module || '—'}</td>
+            <td><strong style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;">${t}</strong></td>
+            <td><span class="exec-badge ${res_cls}">${res_txt}</span></td>
+            <td style="font-size:0.75rem;color:var(--text-muted);">${date}</td>
+          </tr>`;
+      });
+    } catch(e) { console.error('Error loading history', e); }
+  }
+
+  // ─── Result panel toggle ──────────────────────────────────────────
+  function toggleNoCumpleFields() {
+    const res = document.querySelector('input[name="timerResult"]:checked')?.value;
+    document.getElementById('timerNoCumpleFields').style.display = res === 'NO CUMPLE' ? 'block' : 'none';
+  }
+  </script>
+
+
+
+
+</html>

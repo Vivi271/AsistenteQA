@@ -10,657 +10,1037 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@400;600;700;900&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css?v=2.3.0" />
+  <link rel="stylesheet" href="/static/css/style.css?v=4.1.7" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>" />
 </head>
 
 <body>
-  <!-- Fondo animado -->
-  <div class="bg-grid"></div>
-  <div class="bg-glow bg-glow-1"></div>
-  <div class="bg-glow bg-glow-2"></div>
-  <div class="bg-glow bg-glow-3"></div>
+  <!-- ═══ BOOT SCREEN JARVIS ═══ -->
+  <div class="boot-screen" id="bootScreen">
+    <div class="boot-logo">PRQA</div>
+    <div class="boot-subtitle">Asistente QA con IA Local &mdash; Ciel Ingeniería S.A.S</div>
+    <div class="boot-bar-wrap"><div class="boot-bar"></div></div>
+    <div class="boot-status" id="bootStatus">Inicializando sistema...</div>
+  </div>
 
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <div class="logo-container">
-        <div class="logo-badge">
-          <img src="https://www.cielingenieria.com/wp-content/uploads/2019/06/logo-ciel-nuevo2.png" alt="Ciel Logo"
-            class="ciel-logo" />
-        </div>
+  <!-- ═══ HUD BAR SUPERIOR ═══ -->
+  <div class="hud-bar" id="hudBar">
+    <div class="hud-bar-left">
+      <div class="hud-system-badge" id="hudSystemBadge">
+        <div class="hud-system-dot" id="statusDot"></div>
+        <span id="statusLabel">PRQA SISTEMA EN LÍNEA</span>
       </div>
+      <div class="hud-divider"></div>
+      <span class="hud-model-chip" id="hudModelChip">llama3.2</span>
     </div>
+    <div class="hud-bar-center">Ciel Ingeniería S.A.S &nbsp;|&nbsp; Suite de Inteligencia QA</div>
+    <div class="hud-bar-right">
+      <span class="hud-version">versión 2026.08</span>
+      <div class="hud-divider"></div>
+      <span class="hud-clock" id="hudClock">00:00:00</span>
+    </div>
+  </div>
 
-    <!-- Selector de Proyecto rediseñado con gestión completa -->
-    <div class="project-selector-card" id="projectSelectorCard">
-      <div class="project-selector-header">
-        <span class="project-title-label">PROYECTO ACTIVO</span>
-        <button class="proj-new-btn" onclick="openCreateProjectModal()" title="Nuevo proyecto">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </div>
-      <!-- Proyecto activo prominente -->
-      <div class="active-project-display" onclick="toggleProjectDropdown()">
-        <div class="active-project-dot"></div>
-        <span class="active-project-name" id="activeProjectName">Proyectos</span>
-        <svg class="proj-chevron" id="projChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <!-- Dropdown de proyectos -->
-      <div class="project-dropdown hidden" id="projectDropdown">
-        <div class="project-dropdown-list" id="projectDropdownList">
-          <!-- populated by JS -->
+  <!-- ═══ APP LAYOUT WRAPPER ═══ -->
+  <div class="app-layout" id="appLayout">
+
+    <!-- Fondo animado -->
+    <div class="bg-grid"></div>
+    <div class="bg-scanline"></div>
+    <div class="bg-radar"><div class="bg-radar-line"></div></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <!-- ═══ SIDEBAR LATERAL ═══ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-container">
+          <div class="logo-badge">
+            <img src="https://www.cielingenieria.com/wp-content/uploads/2019/06/logo-ciel-nuevo2.png"
+                 onerror="this.onerror=null; this.src='/static/img/ciel_logo.png'"
+                 alt="CIEL Ingeniería" class="ciel-logo" />
+          </div>
         </div>
-        <div class="project-dropdown-footer">
-          <button class="proj-action-add" onclick="openCreateProjectModal(); closeProjectDropdown()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Crear nuevo proyecto
+      </div>
+
+      <!-- Selector de Proyecto con CRUD completo -->
+      <div class="project-selector-card" id="projectSelectorCard">
+        <div class="project-selector-header">
+          <span class="project-title-label">PROYECTO ACTIVO</span>
+          <button class="proj-new-btn" onclick="openCreateProjectModal()" title="Nuevo proyecto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+        <!-- Display del proyecto activo -->
+        <div class="active-project-display" onclick="toggleProjectDropdown()">
+          <div class="active-project-dot"></div>
+          <span class="active-project-name" id="activeProjectName">Proyectos</span>
+          <svg class="proj-chevron" id="projChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <!-- Dropdown de proyectos -->
+        <div class="project-dropdown hidden" id="projectDropdown">
+          <div class="project-dropdown-list" id="projectDropdownList">
+            <!-- populated by JS -->
+          </div>
+          <div class="project-dropdown-footer">
+            <button class="proj-action-add" onclick="openCreateProjectModal(); closeProjectDropdown()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Crear nuevo proyecto
+            </button>
+          </div>
+        </div>
+        <!-- Acciones del proyecto activo -->
+        <div class="project-action-row" id="projectActionRow">
+          <button class="proj-action-btn proj-rename" onclick="openRenameProjectModal()" title="Renombrar proyecto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Renombrar
+          </button>
+          <button class="proj-action-btn proj-delete" onclick="openDeleteProjectModal()" title="Eliminar proyecto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Eliminar
+          </button>
+        </div>
+        <!-- Select nativo oculto para compatibilidad legacy -->
+        <select id="projectSelect" class="project-select" onchange="handleProjectChange(this.value)">
+          <option value="Proyectos">Proyectos</option>
+        </select>
+      </div>
+
+      <!-- Navegación del Flujo de Trabajo -->
+      <div class="nav-flow-label">FLUJO DE TRABAJO</div>
+      <nav class="sidebar-nav">
+        <!-- Paso 1: Base de Conocimiento -->
+        <button class="nav-item active" id="navDocuments" onclick="switchModule('documents')">
+          <div class="nav-step-badge">1</div>
+          <div class="nav-text-group">
+            <span class="nav-title">Base de Conocimiento</span>
+            <span class="nav-subtitle">Sube tus documentos y MTR</span>
+          </div>
+          <div class="nav-indicator"></div>
+        </button>
+
+        <!-- Paso 2: Generar Casos -->
+        <button class="nav-item" id="navGenerate" onclick="switchModule('generate')">
+          <div class="nav-step-badge">2</div>
+          <div class="nav-text-group">
+            <span class="nav-title">Generar Casos</span>
+            <span class="nav-subtitle">La IA crea casos de prueba</span>
+          </div>
+          <div class="nav-indicator"></div>
+        </button>
+
+        <!-- Paso 3: Ejecutar Pruebas -->
+        <button class="nav-item" id="navExecution" onclick="switchModule('execution')">
+          <div class="nav-step-badge">3</div>
+          <div class="nav-text-group">
+            <span class="nav-title">Ejecutar Pruebas</span>
+            <span class="nav-subtitle">Registra CUMPLE o NO CUMPLE</span>
+          </div>
+          <div class="nav-indicator"></div>
+        </button>
+
+        <!-- Paso 4: Tiempos de Ejecución -->
+        <button class="nav-item" id="navTimer" onclick="switchModule('timer')">
+          <div class="nav-step-badge nav-step-alt" style="background:#f59e0b;color:#fff;">⏱</div>
+          <div class="nav-text-group">
+            <span class="nav-title">Tiempos de Ejecución</span>
+            <span class="nav-subtitle">Cronómetro y analíticas</span>
+          </div>
+          <div class="nav-indicator"></div>
+        </button>
+
+        <!-- Paso 5: Dashboard -->
+        <button class="nav-item" id="navDashboard" onclick="switchModule('dashboard')">
+          <div class="nav-step-badge nav-step-alt">📊</div>
+          <div class="nav-text-group">
+            <span class="nav-title">Dashboard</span>
+            <span class="nav-subtitle">Métricas del ciclo de pruebas</span>
+          </div>
+          <div class="nav-indicator"></div>
+        </button>
+      </nav>
+
+      <!-- Footer del Sidebar con Selector de Tema -->
+      <div class="sidebar-footer">
+        <div class="theme-toggle-container">
+          <button class="theme-toggle-btn active" id="themeDarkBtn" onclick="toggleTheme('dark')" title="Modo Oscuro">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <span>Oscuro</span>
+          </button>
+          <button class="theme-toggle-btn" id="themeLightBtn" onclick="toggleTheme('light')" title="Modo Claro">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <span>Claro</span>
           </button>
         </div>
       </div>
-      <!-- Acciones del proyecto activo -->
-      <div class="project-action-row" id="projectActionRow">
-        <button class="proj-action-btn proj-rename" onclick="openRenameProjectModal()" title="Renombrar proyecto">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          Renombrar
-        </button>
-        <button class="proj-action-btn proj-delete" onclick="openDeleteProjectModal()" title="Eliminar proyecto">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          Eliminar
-        </button>
-      </div>
-    </div>
 
-    <!-- Status indicator -->
-    <div class="status-card" id="statusCard">
-      <div class="status-dot" id="statusDot"></div>
-      <div class="status-info">
-        <span class="status-label" id="statusLabel">Verificando...</span>
-        <span class="status-model" id="statusModel">llama3.1:8b</span>
-      </div>
-    </div>
+      <!-- Resizer handle interactivo -->
+      <div class="sidebar-resizer" id="sidebarResizer" title="Arrastra hacia los lados para redimensionar el panel"></div>
+    </aside>
 
-    <!-- Navegación con pasos numerados (sin Asistente IA - ahora es burbuja flotante) -->
-    <div class="nav-flow-label">FLUJO DE TRABAJO</div>
-    <nav class="sidebar-nav">
-      <button class="nav-item" id="navDocuments" onclick="switchModule('documents')">
-        <div class="nav-step-badge">1</div>
-        <div class="nav-text-group">
-          <span class="nav-title">Base de Conocimiento</span>
-          <span class="nav-subtitle">Sube tus documentos y MTR</span>
+    <!-- Botón colapsar / expandir sidebar -->
+    <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" title="Colapsar panel lateral">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+
+    <!-- ═══ CONTENIDO PRINCIPAL DE MÓDULOS ═══ -->
+    <main class="main-content" id="mainContent">
+
+      <!-- ════════════════════════════════════════════
+           MÓDULO 1: BASE DE CONOCIMIENTO
+      ════════════════════════════════════════════ -->
+      <section class="module active" id="moduleDocuments">
+        <div class="kb-layout">
+          <!-- Columna Izquierda: Zona de Carga y Categorías -->
+          <div class="kb-left-col">
+            <div class="kb-info-card">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              <span>La IA usa estos documentos como contexto para generar mejores casos de prueba</span>
+            </div>
+
+            <!-- Zona de subida compacta -->
+            <div class="kb-dropzone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+              <input type="file" id="fileInput" hidden accept=".pdf,.docx,.txt,.xlsx,.xls,.md"
+                onchange="uploadDocument(this.files[0])" />
+              <div class="kb-dropzone-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="28" height="28">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="kb-dropzone-text">Arrastra o <strong style="color:var(--accent-secondary);">haz clic</strong></p>
+              <span class="kb-dropzone-sub">PDF · DOCX · XLSX · TXT · MD</span>
+            </div>
+
+            <!-- Selector de Categoría -->
+            <div class="kb-cat-section">
+              <label class="kb-cat-label">CATEGORÍA DEL DOCUMENTO</label>
+              <div class="kb-cat-pills" id="categoryGroup">
+                <label class="kb-cat-pill active" id="catReqLabel" onclick="setDocCategory('requirements')">
+                  <input type="radio" name="category" value="requirements" id="catReq" checked />
+                  <span class="kb-cat-icon">📄</span>
+                  <span>Requerimientos</span>
+                </label>
+                <label class="kb-cat-pill" id="catMTRLabel" onclick="setDocCategory('mtr')">
+                  <input type="radio" name="category" value="mtr" id="catMTR" />
+                  <span class="kb-cat-icon">📋</span>
+                  <span>MTR</span>
+                </label>
+                <label class="kb-cat-pill" id="catTemplatesLabel" onclick="setDocCategory('templates')">
+                  <input type="radio" name="category" value="templates" id="catTemplates" />
+                  <span class="kb-cat-icon">📁</span>
+                  <span>Plantillas</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Contadores de documentos y fragmentos -->
+            <div class="kb-stats" id="kbStatsContainer">
+              <div class="kb-stat-item">
+                <span class="kb-stat-val" id="kbStatDocsCount">0</span>
+                <span class="kb-stat-lbl">DOCUMENTOS</span>
+              </div>
+              <div class="kb-stat-item">
+                <span class="kb-stat-val" id="kbStatChunksCount">0</span>
+                <span class="kb-stat-lbl">FRAGMENTOS</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Columna Derecha: Buscador y Lista de Documentos -->
+          <div class="kb-right-col">
+            <div class="kb-right-header">
+              <div>
+                <h1 class="kb-title">Base de Conocimiento</h1>
+                <p class="kb-subtitle">Documentos indexados del proyecto <strong id="kbActiveProjectTitle" style="color:var(--text-primary);">Proyectos</strong></p>
+              </div>
+              <div class="kb-header-filters">
+                <div class="kb-search-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input type="text" class="kb-search-input" id="kbSearchInput" placeholder="Buscar documento..." oninput="filterDocuments()" />
+                </div>
+                <select class="kb-filter-select" id="kbCatFilter" onchange="filterDocuments()">
+                  <option value="">Todas las categorías</option>
+                  <option value="mtr">MTR</option>
+                  <option value="requirements">Requerimientos</option>
+                  <option value="templates">Plantillas</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Tabla compacta de documentos -->
+            <div class="kb-table-wrap">
+              <table class="kb-table">
+                <thead>
+                  <tr>
+                    <th style="width:40px;">Tipo</th>
+                    <th>Nombre del archivo</th>
+                    <th>Categoría</th>
+                    <th>Tamaño</th>
+                    <th>Fragmentos</th>
+                    <th>Subido</th>
+                    <th style="width:70px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="documentsGrid">
+                  <tr>
+                    <td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">
+                      <div class="loading-dots"><span></span><span></span><span></span></div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div class="nav-indicator"></div>
-      </button>
+      </section>
 
-      <button class="nav-item" id="navGenerate" onclick="switchModule('generate')">
-        <div class="nav-step-badge">2</div>
-        <div class="nav-text-group">
-          <span class="nav-title">Generar Casos</span>
-          <span class="nav-subtitle">La IA crea casos de prueba</span>
-        </div>
-        <div class="nav-indicator"></div>
-      </button>
-
-      <button class="nav-item" id="navExecution" onclick="switchModule('execution')">
-        <div class="nav-step-badge">3</div>
-        <div class="nav-text-group">
-          <span class="nav-title">Ejecutar Pruebas</span>
-          <span class="nav-subtitle">Registra CUMPLE o NO CUMPLE</span>
-        </div>
-        <div class="nav-indicator"></div>
-      </button>
-
-      <button class="nav-item" id="navDashboard" onclick="switchModule('dashboard')">
-        <div class="nav-step-badge nav-step-alt">⊙</div>
-        <div class="nav-text-group">
-          <span class="nav-title">Dashboard</span>
-          <span class="nav-subtitle">Metricas del ciclo de pruebas</span>
-        </div>
-        <div class="nav-indicator"></div>
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="theme-toggle-container">
-        <button class="theme-toggle-btn active" id="themeDarkBtn" onclick="toggleTheme('dark')" title="Modo Oscuro">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-          <span>Oscuro</span>
-        </button>
-        <button class="theme-toggle-btn" id="themeLightBtn" onclick="toggleTheme('light')" title="Modo Claro">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <circle cx="12" cy="12" r="5" />
-            <line x1="12" y1="1" x2="12" y2="3" />
-            <line x1="12" y1="21" x2="12" y2="23" />
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-            <line x1="1" y1="12" x2="3" y2="12" />
-            <line x1="21" y1="12" x2="23" y2="12" />
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-          </svg>
-          <span>Claro</span>
-        </button>
-      </div>
-      <div class="company-badge">
-        <span class="company-name">Ciel Ingeniería S.A.S</span>
-        <span class="company-area">Calidad de Software</span>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Contenido principal -->
-  <main class="main-content" id="mainContent">
-
-
-
-
-    <!-- ════════════════════════════════════════════
-         MÓDULO 2: GENERADOR DE CASOS DE PRUEBA
-    ════════════════════════════════════════════ -->
-    <section class="module" id="moduleGenerate">
-      <!-- Banner de instrucciones -->
-      <div class="how-to-banner">
-        <div class="how-to-steps">
-          <div class="how-to-step">
-            <div class="how-to-num">1</div>
+      <!-- ════════════════════════════════════════════
+           MÓDULO 2: GENERAR CASOS DE PRUEBA
+      ════════════════════════════════════════════ -->
+      <section class="module" id="moduleGenerate">
+        <!-- Banner de Pasos de Flujo -->
+        <div class="gen-flow-banner">
+          <div class="gen-flow-step">
+            <span class="gen-flow-num">1</span>
             <span>Selecciona un documento de tu base de conocimiento (opcional pero recomendado)</span>
           </div>
-          <div class="how-to-arrow">→</div>
-          <div class="how-to-step">
-            <div class="how-to-num">2</div>
+          <div class="gen-flow-arrow">→</div>
+          <div class="gen-flow-step">
+            <span class="gen-flow-num">2</span>
             <span>Escribe o pega el texto del requerimiento a probar</span>
           </div>
-          <div class="how-to-arrow">→</div>
-          <div class="how-to-step">
-            <div class="how-to-num">3</div>
-            <span>Haz clic en "Generar" y la IA creara los casos en formato EOPA</span>
+          <div class="gen-flow-arrow">→</div>
+          <div class="gen-flow-step">
+            <span class="gen-flow-num">3</span>
+            <span>Haz clic en "Generar" y la IA creará los casos en formato EOPA</span>
           </div>
         </div>
-      </div>
-      <div class="module-header">
-        <div class="module-title-group">
+
+        <!-- Título y Subtítulo de Módulo -->
+        <div class="module-header">
           <h1 class="module-title">Generar Casos de Prueba</h1>
           <p class="module-subtitle">La IA analiza tu requerimiento y genera casos listos para ejecutar</p>
         </div>
 
-      </div>
+        <div class="generator-grid">
+          <!-- Columna Izquierda: Formulario de Configuración -->
+          <div class="panel gen-config-panel">
+            <h2 class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              <span>CONFIGURACIÓN</span>
+            </h2>
 
-      <div class="generate-layout">
-        <!-- Panel de configuración -->
-        <div class="generate-config panel">
-          <h2 class="panel-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-              <circle cx="12" cy="12" r="3" />
-              <path
-                d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2" />
-            </svg>
-            Configuración
-          </h2>
+            <div class="form-group">
+              <label class="form-label" for="projectName">Proyecto</label>
+              <input type="text" id="projectName" class="form-input" placeholder="Nombre del proyecto" value="Proyectos" />
+            </div>
 
-          <div class="form-group">
-            <label class="form-label" for="projectName">Nombre del Proyecto</label>
-            <input type="text" id="projectName" class="form-input" disabled value="" />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="moduleName">Módulo / Funcionalidad</label>
-            <input type="text" id="moduleName" class="form-input" placeholder="ej. Autenticación" value="" />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Tipos de Prueba <span class="form-label-hint">(Selecciona para incluir)</span></label>
-            <div class="custom-multiselect" id="customTestTypesSelect">
-              <div class="multiselect-trigger" onclick="toggleTestTypesDropdown()">
-                <span id="multiselectPlaceholder">Seleccionar tipos de prueba...</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </div>
-              <div class="multiselect-dropdown hidden" id="testTypesDropdown">
-                <label class="dropdown-item">
-                  <input type="checkbox" value="FUNCIONALES" data-label="Funcionales / Negocio" checked onchange="updateTestTypeChips()" />
-                  <span>Funcionales / Negocio</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="CASOS NEGATIVOS" data-label="Casos Negativos / Bordes" checked onchange="updateTestTypeChips()" />
-                  <span>Casos Negativos / Bordes</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="SEGURIDAD" data-label="Seguridad / Ciberseguridad" checked onchange="updateTestTypeChips()" />
-                  <span>Seguridad / Ciberseguridad</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="INTEGRACION" data-label="Integración / APIs" onchange="updateTestTypeChips()" />
-                  <span>Integración / APIs</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="NO FUNCIONALES" data-label="No Funcionales / UI" onchange="updateTestTypeChips()" />
-                  <span>No Funcionales / UI</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="CARGA" data-label="Carga y Rendimiento" onchange="updateTestTypeChips()" />
-                  <span>Carga y Rendimiento</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="COMPATIBILIDAD" data-label="Compatibilidad / Dispositivos" onchange="updateTestTypeChips()" />
-                  <span>Compatibilidad / Dispositivos</span>
-                </label>
-                <label class="dropdown-item">
-                  <input type="checkbox" value="RESILIENCIA" data-label="Resiliencia / Reintentos" onchange="updateTestTypeChips()" />
-                  <span>Resiliencia / Reintentos</span>
-                </label>
+            <div class="form-group">
+              <label class="form-label">Documentos de Referencia de la Base de Conocimiento (Opcional)</label>
+              <div class="doc-multiselect-wrap" id="docMultiSelectWrap">
+                <button type="button" class="doc-multiselect-btn" id="docMultiSelectBtn" onclick="toggleDocMultiSelectDropdown(event)">
+                  <span id="docMultiSelectLabel">-- Seleccionar documentos indexados (0 seleccionados) --</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="doc-multiselect-dropdown hidden" id="docMultiSelectDropdown">
+                  <div class="doc-select-header">
+                    <label class="doc-select-all-label">
+                      <input type="checkbox" id="selectAllDocsCheckbox" onchange="toggleSelectAllDocs(this.checked)" />
+                      <span>Seleccionar todos los documentos del proyecto</span>
+                    </label>
+                  </div>
+                  <div class="doc-checkbox-list" id="docCheckboxList">
+                    <!-- Se llena dinámicamente desde loadDocumentsForGenerator() -->
+                  </div>
+                </div>
+                <!-- Chips de documentos seleccionados -->
+                <div class="doc-selected-chips" id="docSelectedChips"></div>
               </div>
             </div>
-            <!-- Chips de tipos seleccionados -->
-            <div class="selected-chips-container" id="selectedTestTypeChips"></div>
+
+            <!-- Fila compacta: Módulo + Cantidad de casos -->
+            <div class="gen-form-row">
+              <div class="form-group flex-1">
+                <label class="form-label" for="moduleName">Módulo / Funcionalidad (Opcional)</label>
+                <input type="text" id="moduleName" class="form-input" placeholder="ej. Autenticación, Carrito" value="" />
+              </div>
+              <div class="form-group" style="width: 110px; flex-shrink: 0;">
+                <label class="form-label" for="numCases">Cantidad</label>
+                <input type="number" id="numCases" class="form-input" min="1" max="30" value="5" placeholder="5" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Tipos de Prueba (Selecciona para incluir)</label>
+              <div class="doc-multiselect-wrap" id="customTestTypesSelect">
+                <button type="button" class="doc-multiselect-btn" id="testTypesBtn" onclick="toggleTestTypesDropdown()">
+                  <span id="multiselectPlaceholder">3 tipo(s) de prueba seleccionado(s)</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="doc-multiselect-dropdown hidden" id="testTypesDropdown">
+                  <div class="doc-checkbox-list">
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="FUNCIONALES" data-label="Funcionales / Negocio" checked onchange="updateTestTypeChips()" />
+                      <span>Funcionales / Negocio</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="CASOS NEGATIVOS" data-label="Casos Negativos / Bordes" checked onchange="updateTestTypeChips()" />
+                      <span>Casos Negativos / Bordes</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="SEGURIDAD" data-label="Seguridad / Ciberseguridad" checked onchange="updateTestTypeChips()" />
+                      <span>Seguridad / Ciberseguridad</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="INTEGRACION" data-label="Integración" onchange="updateTestTypeChips()" />
+                      <span>Integración</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="NO FUNCIONALES" data-label="No Funcionales" onchange="updateTestTypeChips()" />
+                      <span>No Funcionales</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="CARGA" data-label="Carga" onchange="updateTestTypeChips()" />
+                      <span>Carga</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="ESTRESS" data-label="Estrés" onchange="updateTestTypeChips()" />
+                      <span>Estrés</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="COMPATIBILIDAD" data-label="Compatibilidad" onchange="updateTestTypeChips()" />
+                      <span>Compatibilidad</span>
+                    </label>
+                    <label class="doc-checkbox-item">
+                      <input type="checkbox" value="RESILIENCIA" data-label="Resiliencia" onchange="updateTestTypeChips()" />
+                      <span>Resiliencia</span>
+                    </label>
+                  </div>
+                </div>
+                <!-- Chips de tipos seleccionados -->
+                <div class="test-chips-container" id="selectedTestTypeChips"></div>
+              </div>
+            </div>
+
+            <div class="form-group flex-grow-group">
+              <label class="form-label" for="promptInput">Requerimiento o Criterios de Aceptación</label>
+              <textarea id="promptInput" class="form-textarea"
+                placeholder="Describe la funcionalidad a probar, flujos alternos o pega criterios de aceptación..."></textarea>
+            </div>
+
+            <button class="btn-primary btn-full" id="generateBtn" onclick="generateTestCases()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+              <span>Generar Matriz EOPA con IA</span>
+            </button>
+
+            <div class="generator-loading hidden" id="generatorLoading">
+              <div class="loading-spinner"></div>
+              <p>Consultando base de conocimiento y generando casos de prueba...</p>
+              <span>Esto puede tardar entre 20 y 45 segundos según el modelo</span>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="numCases">Cantidad de Casos a Generar</label>
-            <input type="number" id="numCases" class="form-input" min="1" max="100" value="6" placeholder="ej. 6" />
+          <!-- Columna Derecha: Matrices Generadas -->
+          <div class="panel gen-results-panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" style="margin-bottom:0.15rem;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  Matrices Excel Generadas
+                </h2>
+                <p style="font-size:0.75rem;color:var(--text-muted);">Historial de exportaciones EOPA del proyecto</p>
+              </div>
+              <span class="badge" id="caseCountBadge">0</span>
+            </div>
+
+            <div class="test-cases-list" id="testCasesContainer">
+              <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <p>Sin archivos generados</p>
+                <span>Genera casos de prueba a la izquierda para crear tu primera matriz Excel EOPA</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════════════════════════
+           MÓDULO 3: EJECUTAR PRUEBAS
+      ════════════════════════════════════════════ -->
+      <section class="module" id="moduleExecution">
+        <div class="exec-layout">
+          <!-- Header KPI chips -->
+          <!-- Vista 1: Lista de matrices Excel (por defecto) -->
+          <div id="execMatrixListView">
+            <!-- KPI chips globales -->
+            <div class="exec-kpi-row">
+              <span class="exec-kpi-chip" id="execGlobalKpiTotal">0 <em>Total Casos</em></span>
+              <span class="exec-kpi-chip green" id="execGlobalKpiPass">0 <em>Cumple</em></span>
+              <span class="exec-kpi-chip red" id="execGlobalKpiFail">0 <em>No Cumple</em></span>
+              <span class="exec-kpi-chip purple" id="execGlobalKpiRate">0% <em>Avance</em></span>
+            </div>
+
+            <!-- Subtítulo -->
+            <p style="font-size:0.78rem;color:var(--text-muted);margin:0.25rem 0 0.85rem;">
+              Selecciona una Matriz Excel para ejecutar y registrar sus casos de prueba.
+            </p>
+
+            <!-- Grid de tarjetas de matrices -->
+            <div id="execMatrixGrid" class="exec-matrix-grid">
+              <div class="empty-state"><p>Cargando matrices...</p></div>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="docSelect">Cargar desde Base de Conocimiento</label>
-            <select id="docSelect" class="form-input" onchange="loadDocToTextarea(this.value)">
-              <option value="">-- Seleccionar documento indexado (Opcional) --</option>
+          <!-- Vista 2: Detalle de casos de una matriz (oculta por defecto) -->
+          <div id="execDetailView" class="hidden">
+            <!-- Header de la vista detalle -->
+            <div class="exec-detail-header">
+              <button class="exec-back-btn" onclick="backToExecMatrices()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+                <span>Volver a Matrices</span>
+              </button>
+              <div class="exec-detail-title-area">
+                <div class="exec-detail-title" id="execDetailTitle">Módulo: General</div>
+                <div class="exec-detail-meta" id="execDetailMeta"></div>
+              </div>
+              <div style="display:flex;gap:0.5rem;align-items:center;">
+                <button class="btn-ghost" style="font-size:0.75rem;padding:0.45rem 0.85rem;" onclick="refreshExecDetail()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  Actualizar
+                </button>
+                <button class="btn-primary" style="font-size:0.75rem;padding:0.45rem 0.85rem;" id="execDetailExportBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Descargar Resultados
+                </button>
+              </div>
+            </div>
+
+            <!-- KPIs de la matriz seleccionada -->
+            <div class="exec-detail-kpis">
+              <div class="exec-dkpi-card">
+                <span class="exec-dkpi-num" id="execDKpiTotal">0</span>
+                <span class="exec-dkpi-lbl">Total Casos</span>
+              </div>
+              <div class="exec-dkpi-card green">
+                <span class="exec-dkpi-num" id="execDKpiCumple">0</span>
+                <span class="exec-dkpi-lbl">✓ CUMPLE</span>
+              </div>
+              <div class="exec-dkpi-card red">
+                <span class="exec-dkpi-num" id="execDKpiFail">0</span>
+                <span class="exec-dkpi-lbl">✗ NO CUMPLE</span>
+              </div>
+              <div class="exec-dkpi-card amber">
+                <span class="exec-dkpi-num" id="execDKpiPending">0</span>
+                <span class="exec-dkpi-lbl">⏳ Pendientes</span>
+              </div>
+              <div class="exec-dkpi-card purple" style="flex:2;min-width:160px;">
+                <div style="width:100%;height:8px;background:var(--bg-panel);border-radius:9999px;overflow:hidden;margin-bottom:0.35rem;">
+                  <div id="execDetailProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#009ca6,#00e5ff);border-radius:9999px;transition:width 0.4s ease;"></div>
+                </div>
+                <span class="exec-dkpi-lbl"><span id="execDKpiPct" style="font-weight:700;color:var(--accent-primary);">0%</span> Avance</span>
+              </div>
+            </div>
+
+            <!-- Barra filtros de la vista detalle -->
+            <div class="exec-filter-bar" style="margin-bottom:0.75rem;">
+              <div class="dash-search-input-wrap" style="flex:1;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" class="dash-filter-search" id="execDetailSearch" placeholder="Buscar por título, ID, tipo..." oninput="filterExecDetailCases()" />
+              </div>
+              <select class="dash-filter-select" id="execDetailStatusFilter" onchange="filterExecDetailCases()">
+                <option value="">Todos los estados</option>
+                <option value="Pendiente">Pendientes</option>
+                <option value="CUMPLE">CUMPLE</option>
+                <option value="NO CUMPLE">NO CUMPLE</option>
+              </select>
+            </div>
+
+            <!-- Lista de casos de la matriz -->
+            <div id="execDetailCasesList" class="exec-cases-container"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════════════════════════
+           MÓDULO 4: TIEMPOS DE EJECUCIÓN (HUD PRO)
+      ════════════════════════════════════════════ -->
+      <section class="module" id="moduleTimer">
+        <!-- Header con Botón de Exportación -->
+        <div class="timer-top-header">
+          <div>
+            <h1 class="timer-main-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Tiempos de Ejecución
+            </h1>
+            <p class="timer-main-subtitle">Mide, registra y analiza el tiempo real de cada caso de prueba por matriz Excel</p>
+          </div>
+          <button class="btn-primary" onclick="exportTimedExcel()" style="gap:0.5rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Descargar Excel con Tiempos</span>
+          </button>
+        </div>
+
+        <!-- Fila de 5 KPIs Estadísticos -->
+        <div class="timer-kpi-grid">
+          <div class="timer-kpi-card">
+            <span class="timer-kpi-label">EJECUTADOS</span>
+            <span class="timer-kpi-val" id="timerKpiCount">0</span>
+          </div>
+          <div class="timer-kpi-card">
+            <span class="timer-kpi-label">x̄ PROMEDIO</span>
+            <span class="timer-kpi-val" id="timerKpiAvg">0s</span>
+          </div>
+          <div class="timer-kpi-card">
+            <span class="timer-kpi-label">∑ TOTAL</span>
+            <span class="timer-kpi-val" id="timerKpiTotal">0s</span>
+          </div>
+          <div class="timer-kpi-card">
+            <span class="timer-kpi-label">⚡ MÍNIMO</span>
+            <span class="timer-kpi-val" id="timerKpiMin">0s</span>
+          </div>
+          <div class="timer-kpi-card">
+            <span class="timer-kpi-label">🔥 MÁXIMO</span>
+            <span class="timer-kpi-val" id="timerKpiMax">0s</span>
+          </div>
+        </div>
+
+        <!-- Cuadrícula Principal: Cronómetro + Analíticas -->
+        <div class="timer-main-grid">
+          <!-- Columna Izquierda: Controles y Cronómetro -->
+          <div class="panel timer-controls-card">
+            <div class="form-group">
+              <label class="form-label" for="timerMatrixSelect">Matriz de Pruebas (Archivo Excel)</label>
+              <select id="timerMatrixSelect" class="form-input" onchange="onTimerMatrixSelected()">
+                <option value="">-- Todas las matrices de prueba --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                <label class="form-label" for="timerCaseSelect" style="margin:0;">Caso de Prueba</label>
+                <span id="timerAvailableCasesCount" style="font-size:0.68rem;color:var(--text-muted);">0 casos disponibles</span>
+              </div>
+              <select id="timerCaseSelect" class="form-input">
+                <option value="">-- Selecciona un caso de prueba --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="timerTesterInput">Tester</label>
+              <input type="text" id="timerTesterInput" class="form-input" placeholder="Nombre del tester (opcional)" />
+            </div>
+
+            <!-- Display HUD del Cronómetro -->
+            <div class="timer-hud-box">
+              <div class="timer-state-indicator" id="timerStateIndicator">
+                <span class="timer-dot"></span>
+                <span id="timerStateText">LISTO</span>
+              </div>
+              <div class="timer-digital-display" id="timerDisplay">00:00.0</div>
+              <div class="timer-action-buttons">
+                <button class="timer-btn-start" id="btnTimerStart" onclick="startTimer()">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>Iniciar</span>
+                </button>
+                <button class="timer-btn-stop" id="btnTimerStop" onclick="stopTimer()" disabled>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="6" y="6" width="12" height="12"/></svg>
+                  <span>Detener & Guardar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Columna Derecha: Analíticas Visuales (Módulos y Tipos) -->
+          <div class="timer-analytics-col">
+            <!-- Tarjeta 1: Tiempo Promedio por Módulo -->
+            <div class="panel timer-module-card">
+              <h3 class="timer-card-title">TIEMPO PROMEDIO POR MÓDULO / RF</h3>
+              <div class="timer-module-bars-list" id="timerModuleBarsList">
+                <div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;">Ejecuta casos cronometrados para visualizar métricas por módulo.</div>
+              </div>
+            </div>
+
+            <!-- Tarjeta 2: Promedio por Tipo de Prueba -->
+            <div class="panel timer-type-card">
+              <h3 class="timer-card-title">PROMEDIO POR TIPO DE PRUEBA</h3>
+              <div class="timer-type-grid" id="timerTypeGrid">
+                <div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;grid-column:1/-1;">Sin datos registrados aún.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla Inferior: Historial de Ejecuciones Cronometradas -->
+        <div class="panel timer-history-panel" style="margin-top:1.25rem;">
+          <h3 class="timer-card-title" style="margin-bottom:0.75rem;">HISTORIAL DE EJECUCIONES CRONOMETRADAS</h3>
+          <div class="table-responsive">
+            <table class="kb-table">
+              <thead>
+                <tr>
+                  <th style="width:130px;">ID CASO</th>
+                  <th>TÍTULO</th>
+                  <th>MÓDULO</th>
+                  <th style="width:90px;">TIEMPO</th>
+                  <th style="width:100px;">ESTADO</th>
+                  <th style="width:130px;">FECHA</th>
+                  <th style="width:70px;text-align:center;">ACCIONES</th>
+                </tr>
+              </thead>
+              <tbody id="timerHistoryBody">
+                <tr>
+                  <td colspan="7" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Sin sesiones registradas aún.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════════════════════════
+           MÓDULO 5: DASHBOARD — ANALYTICS PRO
+      ════════════════════════════════════════════ -->
+      <section class="module" id="moduleDashboard">
+        <!-- Header Analytics -->
+        <div class="dash-pro-header">
+          <div class="dash-pro-header-left">
+            <div>
+              <h1 class="dash-pro-title">Panel de Analíticas y Calidad</h1>
+              <p class="dash-pro-subtitle">Proyecto: <span id="dashProjectName" class="dash-project-name">Proyectos</span></p>
+            </div>
+          </div>
+          <div class="dash-pro-header-right">
+            <div class="dash-status-pill">
+              <span class="dash-pill-dot"></span>
+              <span>RAG ACTIVO</span>
+            </div>
+            <button class="dash-pro-refresh-btn" onclick="loadDashboard()" id="dashRefreshBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Actualizar
+            </button>
+          </div>
+        </div>
+
+        <!-- Barra de Filtros -->
+        <div class="dash-filters-bar">
+          <div class="dash-filter-group" style="min-width: 170px;">
+            <label class="dash-filter-label">Buscar en Casos</label>
+            <div class="dash-search-input-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" class="dash-filter-search" id="dashFilterSearch" placeholder="Título, ID, módulo..." oninput="applyDashFilters()" />
+            </div>
+          </div>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label">Documento Fuente</label>
+            <select class="dash-filter-select" id="dashFilterDoc" onchange="applyDashFilters()">
+              <option value="">Todos los documentos</option>
             </select>
           </div>
-
-          <div class="form-group">
-            <label class="form-label" for="requirementText">Requerimiento / MTR <span class="form-label-hint">(pega el texto del requerimiento a probar)</span></label>
-            <textarea id="requirementText" class="form-textarea"
-              placeholder="Ejemplo: El sistema debe permitir registrar un afiliado con nombre, RUT y fecha de nacimiento. El RUT debe ser unico y validado. Si el RUT ya existe, mostrar mensaje de error..."
-              rows="8"></textarea>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label">Tipo de Prueba</label>
+            <select class="dash-filter-select" id="dashFilterType" onchange="applyDashFilters()">
+              <option value="">Todos los tipos</option>
+              <option value="FUNCIONALES">Funcionales</option>
+              <option value="CASOS NEGATIVOS">Casos Negativos</option>
+              <option value="SEGURIDAD">Seguridad</option>
+              <option value="INTEGRACION">Integración</option>
+              <option value="NO FUNCIONALES">No Funcionales</option>
+              <option value="CARGA">Carga</option>
+              <option value="ESTRESS">Estrés</option>
+              <option value="COMPATIBILIDAD">Compatibilidad</option>
+              <option value="RESILIENCIA">Resiliencia</option>
+            </select>
           </div>
-
-          <button class="btn-primary btn-full" id="generateBtn" onclick="generateTestCases()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          <div class="dash-filter-group">
+            <label class="dash-filter-label">Severidad</label>
+            <select class="dash-filter-select" id="dashFilterSev" onchange="applyDashFilters()">
+              <option value="">Todas</option>
+              <option value="Bloqueante">Bloqueante</option>
+              <option value="Crítico">Crítico</option>
+              <option value="Tolerable">Tolerable</option>
+              <option value="Interfaz de usuario">Interfaz</option>
+            </select>
+          </div>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label">Resultado</label>
+            <select class="dash-filter-select" id="dashFilterResult" onchange="applyDashFilters()">
+              <option value="">Todos</option>
+              <option value="CUMPLE">CUMPLE</option>
+              <option value="NO CUMPLE">NO CUMPLE</option>
+              <option value="Pendiente">Pendiente</option>
+            </select>
+          </div>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label">Desde</label>
+            <input type="date" class="dash-filter-date" id="dashFilterDateFrom" onchange="applyDashFilters()" />
+          </div>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label">Hasta</label>
+            <input type="date" class="dash-filter-date" id="dashFilterDateTo" onchange="applyDashFilters()" />
+          </div>
+          <button class="dash-filter-clear" onclick="clearDashFilters()" title="Limpiar filtros">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
-            Generar Casos de Prueba
+            Limpiar
           </button>
+          <div class="dash-filter-count" id="dashFilterCount"></div>
         </div>
 
-        <!-- Panel de resultados: historial de Excels -->
-        <div class="generate-results panel" style="position:relative;">
-          <div class="panel-header" style="flex-shrink:0;">
-            <h2 class="panel-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17" />
-              </svg>
-              Historial de Excels Generados
-            </h2>
-            <div style="display:flex;align-items:center;gap:0.5rem;">
-              <span class="badge" id="caseCountBadge">0</span>
-              <button class="btn-ghost" style="font-size:0.7rem;padding:0.3rem 0.6rem;" onclick="loadTestCasesForGenerator()" title="Actualizar historial">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              </button>
-            </div>
-          </div>
+        <!-- Fila 1: 5 KPI Cards con Sparklines -->
+        <div class="dash-spark-grid" id="metricsGrid">
+          <!-- Generadas dinámicamente por loadDashboard() -->
+        </div>
 
-          <!-- Banner de progreso: compacto, no tapa el historial -->
-          <div id="generatorLoading" class="excel-loading-overlay hidden">
-            <div class="loading-orb" style="width:22px;height:22px;flex-shrink:0;"></div>
+        <!-- Fila 2: Widget Principal de Avance y Cobertura por Módulo -->
+        <div class="dash-main-chart-card">
+          <div class="dash-chart-header">
             <div>
-              <p style="font-weight:600;color:var(--accent-primary);margin:0;font-size:0.82rem;">Generando con IA...</p>
-              <span style="font-size:0.72rem;color:var(--text-muted);">Analizando el requerimiento y construyendo el Excel EOPA</span>
+              <h2 class="dash-chart-title">Avance de Ejecución & Cobertura de Calidad por Módulo</h2>
+              <p class="dash-chart-desc">Distribución real de casos ejecutados, aprobados, defectos y pendientes</p>
+            </div>
+            <div class="dash-chart-legend">
+              <div class="dash-legend-item"><span class="dash-legend-dot" style="background:#10b981;"></span><span>CUMPLE (Pass)</span></div>
+              <div class="dash-legend-item"><span class="dash-legend-dot" style="background:#ef4444;"></span><span>NO CUMPLE (Falla)</span></div>
+              <div class="dash-legend-item"><span class="dash-legend-dot" style="background:rgba(148, 163, 184, 0.4);"></span><span>PENDIENTE</span></div>
+            </div>
+          </div>
+          <div class="dash-chart-body" id="dashMainChartContainer">
+            <!-- Renderizado dinámicamente -->
+          </div>
+        </div>
+
+        <!-- Fila 3: Distribución por Tipo y Defectos por Severidad -->
+        <div class="dash-two-col-grid">
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3 class="dash-card-title">Distribución por Tipo de Prueba</h3>
+              <span class="dash-card-badge" id="dashTypeBadge">Tipos</span>
+            </div>
+            <div id="typeDistribution">
+              <!-- Histograma generado dinámicamente -->
             </div>
           </div>
 
-
-          <!-- Historial de archivos siempre visible -->
-          <div id="testCasesContainer" class="test-cases-list">
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-              </svg>
-              <p>Historial de archivos vacío</p>
-              <span>Genera casos de prueba a la izquierda para producir y guardar archivos Excel descargables</span>
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3 class="dash-card-title">Defectos por Nivel de Severidad</h3>
+              <span class="dash-card-badge dash-badge-alert" id="dashSevBadge">Defectos</span>
+            </div>
+            <div id="severityDistribution">
+              <!-- Barras de severidad generadas dinámicamente -->
             </div>
           </div>
         </div>
+      </section>
 
-      </div>
-    </section>
+    </main>
+  </div>
 
-    <!-- ════════════════════════════════════════════
-         MÓDULO 3: EJECUCIÓN DE PRUEBAS
-    ════════════════════════════════════════════ -->
-    <section class="module" id="moduleExecution">
-      <div class="module-header">
-        <div class="module-title-group">
-          <h1 class="module-title">Ejecutar Pruebas</h1>
-          <p class="module-subtitle">Selecciona una generación, ejecuta cada caso y registra si el sistema CUMPLE o falla</p>
-        </div>
-        <div class="module-actions" style="display:flex;gap:0.6rem;align-items:center;">
-          <select class="form-select-sm" id="filterStatus" onchange="loadTestCasesForExecution()">
-            <option value="">Todos los estados</option>
-            <option value="Pendiente">Pendiente</option>
-            <option value="Ejecutado">Ejecutado</option>
-          </select>
-          <button class="btn-ghost" style="font-size:0.78rem;" onclick="loadTestCasesForExecution()" title="Recargar casos de prueba">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-            Actualizar
-          </button>
-        </div>
-      </div>
-
-      <!-- Cuerpo de ejecución: generado dinámicamente por JS -->
-      <div class="execution-table-wrap" id="executionGrid">
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48">
-            <polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-          </svg>
-          <p>No hay casos de prueba disponibles</p>
-          <span>Genera casos de prueba primero en el módulo "Generar Casos"</span>
-          <button class="btn-primary" style="margin-top:1rem" onclick="switchModule('generate')">Ir a Generar</button>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- ════════════════════════════════════════════
-         MÓDULO 4: BASE DE CONOCIMIENTO
-    ════════════════════════════════════════════ -->
-    <section class="module" id="moduleDocuments">
-      <!-- Banner de instrucciones -->
-      <div class="how-to-banner how-to-banner-start">
-        <div class="how-to-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div>
-          <strong>Por que subir documentos aqui?</strong> — La IA los lee y los usa como contexto al generar casos de prueba. Cuanto mas detallado sea tu requerimiento o MTR, mejores seran los casos generados. Soporta: PDF, DOCX, XLSX, TXT.
-        </div>
-      </div>
-      <div class="module-header">
-        <div class="module-title-group">
-          <h1 class="module-title">Base de Conocimiento</h1>
-          <p class="module-subtitle">Sube aqui tus MTR, requerimientos y documentos del proyecto</p>
-        </div>
-      </div>
-
-      <!-- Zona de carga -->
-      <div class="upload-zone" id="uploadZone">
-        <input type="file" id="fileInput" hidden accept=".pdf,.docx,.txt,.xlsx,.xls,.md"
-          onchange="uploadDocument(this.files[0])" />
-        <div class="upload-content" onclick="document.getElementById('fileInput').click()">
-          <div class="upload-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </div>
-          <p class="upload-text">Arrastra aquí o <strong>haz clic</strong> para subir documentos</p>
-          <span class="upload-hint">Soporta: PDF, DOCX, XLSX, TXT, MD</span>
-        </div>
-
-        <div class="upload-category-row">
-          <label class="form-label">Categoría:</label>
-          <div class="radio-group" id="categoryGroup">
-            <label class="radio-item">
-              <input type="radio" name="category" value="mtr" id="catMTR" />
-              <span class="radio-custom"></span>
-              <span>MTR</span>
-            </label>
-            <label class="radio-item">
-              <input type="radio" name="category" value="requirements" checked id="catReq" />
-              <span class="radio-custom"></span>
-              <span>Requerimientos</span>
-            </label>
-            <label class="radio-item">
-              <input type="radio" name="category" value="templates" id="catTemplates" />
-              <span class="radio-custom"></span>
-              <span>Plantillas</span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <!-- Lista de documentos -->
-      <div class="documents-grid" id="documentsGrid">
-        <div class="loading-dots">
-          <span></span><span></span><span></span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ════════════════════════════════════════════
-         MÓDULO 5: DASHBOARD
-    ════════════════════════════════════════════ -->
-    <section class="module" id="moduleDashboard">
-      <!-- Header del Dashboard -->
-      <div class="module-header">
-        <div class="module-title-group">
-          <h1 class="module-title">Dashboard</h1>
-          <p class="module-subtitle" id="dashboardSubtitle">Ciclo de pruebas completo · <span id="dashProjectName"></span></p>
-        </div>
-        <button class="btn-primary" onclick="loadDashboard()" style="gap:0.5rem;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-            <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-          Actualizar
-        </button>
-      </div>
-
-      <!-- KPI Cards principales -->
-      <div id="metricsGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;">
-        <!-- Generadas dinámicamente por loadDashboard() -->
-      </div>
-
-      <!-- Barra de progreso global prominente -->
-      <div id="dashProgressSection" style="margin-bottom:1.5rem;"></div>
-
-      <!-- Paneles de análisis -->
-      <div class="dashboard-panels" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-        <div class="panel" style="grid-column:1;">
-          <h2 class="panel-title">Distribución por Tipo de Prueba</h2>
-          <div id="typeDistribution" class="distribution-list"></div>
-        </div>
-        <div class="panel" style="grid-column:2;">
-          <h2 class="panel-title">Defectos por Severidad</h2>
-          <div id="severityDistribution" class="distribution-list"></div>
-        </div>
-      </div>
-
-      <!-- IDs legacy compatibles -->
-      <span id="mTotalCases" style="display:none"></span>
-      <span id="mCumple" style="display:none"></span>
-      <span id="mNoCumple" style="display:none"></span>
-      <span id="mPassRate" style="display:none"></span>
-      <span id="execProgress" style="display:none"></span>
-      <span id="passProgress" style="display:none"></span>
-      <div id="execProgressBar" style="display:none"></div>
-      <div id="passProgressBar" style="display:none"></div>
-    </section>
-
-  </main>
-
-  <!-- ═══ BURBUJA FLOTANTE ASISTENTE IA ═══════════════════════ -->
-  <!-- Botón burbuja siempre visible -->
-  <button class="chat-fab" id="chatFab" onclick="toggleChatDrawer()" title="Asistente IA">
-    <svg class="chat-fab-icon chat-fab-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-    <svg class="chat-fab-icon chat-fab-close hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="22" height="22">
-      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-    </svg>
-    <span class="chat-fab-label">Asistente IA</span>
-  </button>
-
-  <!-- Drawer lateral del asistente -->
-  <div class="chat-drawer" id="chatDrawer">
-    <div class="chat-drawer-header">
-      <div class="chat-drawer-title">
-        <div class="chat-drawer-dot"></div>
-        <span>Asistente IA</span>
-      </div>
-      <div class="chat-drawer-controls">
-        <label class="toggle-switch toggle-sm" title="Usar Base de Conocimiento">
-          <input type="checkbox" id="useKnowledgeBase" checked />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          <span class="toggle-label" style="font-size:0.72rem">Contexto</span>
-        </label>
-        <button class="btn-ghost btn-sm" onclick="clearChat()" title="Limpiar chat">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-          </svg>
-        </button>
-        <button class="btn-ghost btn-sm" onclick="toggleChatDrawer()" title="Cerrar" style="margin-left:4px; font-size:1.1rem; padding: 2px 6px;">✕</button>
-      </div>
+  <!-- ═══ BARRA INFERIOR JARVIS / ASISTENTE DE VOZ ═══ -->
+  <div class="jarvis-talk-bar" id="jarvisTalkBar">
+    <div class="jtb-dots jtb-dots-left">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
     </div>
-    <div class="chat-messages" id="chatMessages">
-      <!-- Welcome message -->
-      <div class="message assistant-message welcome-message">
-        <div class="message-avatar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-          </svg>
-        </div>
-        <div class="message-content">
-          <div class="message-header">
-            <span class="message-sender">PRQA Assistant</span>
-            <span class="message-time">Ahora</span>
-          </div>
-          <div class="message-text">
-            <p>¡Hola! Soy tu asistente de QA. Puedo ayudarte con:</p>
-            <ul>
-              <li>Analizar requerimientos y documentos</li>
-              <li>Generar casos de prueba EOPA</li>
-              <li>Responder preguntas de testing</li>
-            </ul>
-            <p>¿En qué te ayudo?</p>
-          </div>
-        </div>
+
+    <!-- Área Central: Orbe Holográfico / Nube de Energía -->
+    <div class="jtb-center-area" onclick="toggleListening()" title="Activar / Desactivar asistente de voz">
+      <div class="energy-cloud" id="energyCloud">
+        <div class="ec-blob-1"></div>
+        <div class="ec-blob-2"></div>
+        <div class="ec-blob-3"></div>
+        <div class="ec-core"></div>
+        <div class="ec-ring ec-ring-1"></div>
+        <div class="ec-ring ec-ring-2"></div>
       </div>
+      <span class="jtb-status-label" id="voiceStatusText">Toca para comenzar...</span>
     </div>
-    <div class="chat-input-area">
-      <div class="chat-hints" style="padding:0.5rem 0.75rem 0;">
-        <span class="hint-chip" onclick="setInput('Resume el documento que tengo en la base de conocimiento')">Resume mi documento</span>
-        <span class="hint-chip" onclick="setInput('Cuales son los criterios de aceptacion segun EOPA?')">Criterios EOPA</span>
-        <span class="hint-chip" onclick="setInput('Que casos borde deberia probar en un formulario de registro?')">Casos borde</span>
-      </div>
-      <div class="chat-input-container">
-        <textarea id="chatInput" class="chat-input"
-          placeholder="Escribe tu consulta..." rows="1"
-          onkeydown="handleChatKeydown(event)" oninput="autoResizeTextarea(this)"></textarea>
-        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-            <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </button>
-      </div>
+
+    <div class="jtb-dots jtb-dots-right">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <!-- Controles de Transcripción / Detener -->
+    <div class="jtb-right">
+      <button class="jtb-btn jtb-btn-stop" id="tpStopBtn" onclick="stopAI()" title="Detener respuesta de IA">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        <span>DETENER</span>
+      </button>
+      <button class="jtb-icon-btn" id="ttsToggleBtn" onclick="toggleTTS()" title="Silenciar / Activar voz de CIEL AI">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        </svg>
+      </button>
+      <button class="jtb-icon-btn" id="tibToggleBtn" onclick="toggleTextInput()" title="Escribir por teclado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+          <line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line>
+          <line x1="6" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line>
+          <line x1="7" y1="16" x2="17" y2="16"></line>
+        </svg>
+      </button>
+      <button class="jtb-btn jtb-btn-transcript" id="jtbTranscriptToggle" onclick="toggleTranscriptDrawer()" title="Ver transcripción">
+        <span class="jtb-dot-live"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>TRANSCRIPCIÓN</span>
+      </button>
     </div>
   </div>
-  <!-- Fondo oscuro al abrir el drawer en móvil -->
-  <div class="chat-drawer-backdrop hidden" id="chatDrawerBackdrop" onclick="toggleChatDrawer()"></div>
 
-
-  <!-- ═══ MODAL DE EJECUCIÓN — Diseño Premium ══════════════════ -->
-  <div class="modal-overlay hidden" id="executionModal">
-    <div class="modal" id="executionModalContent" style="max-width:560px;width:100%;">
-
-      <!-- Encabezado del modal -->
-      <div class="modal-header" style="padding:1.4rem 1.6rem;gap:1rem;">
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:0.3rem;font-weight:600;">Registrar Resultado</div>
-          <h3 class="modal-title" id="modalTestCaseTitle" style="font-size:1rem;line-height:1.3;"></h3>
-        </div>
-        <button class="modal-close" onclick="closeExecutionModal()" style="flex-shrink:0;">✕</button>
+  <!-- Panel flotante de Transcripción (Diseño exacto de la captura) -->
+  <div class="jarvis-log-panel hidden" id="jarvisLogPanel">
+    <div class="jlp-header">
+      <div class="jlp-header-title">
+        <span class="jlp-header-dot"></span>
+        <span>CIEL AI · TRANSCRIPCIÓN</span>
       </div>
-
-      <!-- Badge del ID del caso -->
-      <div style="padding:0 1.6rem;margin-top:0;">
-        <span class="modal-case-id" id="modalCaseId"></span>
-      </div>
-
-      <div class="modal-body" style="padding:1.25rem 1.6rem;">
-
-        <!-- Sección: Resultado del caso -->
-        <div style="margin-bottom:1.25rem;">
-          <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:0.75rem;">¿El sistema respondió correctamente?</div>
-          <div class="result-buttons">
-            <button class="result-btn cumple" id="btnCumple" onclick="selectResult('CUMPLE')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="26" height="26">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              CUMPLE
-            </button>
-            <button class="result-btn no-cumple" id="btnNoCumple" onclick="selectResult('NO CUMPLE')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="26" height="26">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-              NO CUMPLE
-            </button>
-          </div>
-        </div>
-
-        <!-- Campos adicionales para defectos — solo visible al seleccionar NO CUMPLE -->
-        <div class="modal-fields" id="noCumpleFields" style="display:none;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:var(--radius-md);padding:1rem;margin-bottom:1rem;">
-          <div style="font-size:0.72rem;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.75rem;">
-            ⚠ Información del Defecto
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
-            <div class="form-group" style="margin:0;">
-              <label class="form-label" style="font-size:0.7rem;">Severidad</label>
-              <select class="form-input" id="execSeverity" style="font-size:0.78rem;padding:0.45rem 0.6rem;">
-                <option value="Tolerable">Tolerable</option>
-                <option value="Interfaz de usuario">Interfaz UI</option>
-                <option value="Crítico">Crítico</option>
-                <option value="Bloqueante">Bloqueante</option>
-              </select>
-            </div>
-            <div class="form-group" style="margin:0;">
-              <label class="form-label" style="font-size:0.7rem;">Tipo</label>
-              <select class="form-input" id="execIncidentType" style="font-size:0.78rem;padding:0.45rem 0.6rem;">
-                <option value="Error">Error</option>
-                <option value="Mejora">Mejora</option>
-              </select>
-            </div>
-            <div class="form-group" style="margin:0;">
-              <label class="form-label" style="font-size:0.7rem;">Estado</label>
-              <select class="form-input" id="execIncidentState" style="font-size:0.78rem;padding:0.45rem 0.6rem;">
-                <option value="Abierto">Abierto</option>
-                <option value="Re-abierto">Re-abierto</option>
-                <option value="Cerrado">Cerrado</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Notas en ancho completo -->
-        <div class="form-group" style="margin:0;">
-          <label class="form-label">Notas / Observaciones</label>
-          <textarea class="form-textarea" id="execNotes" rows="3"
-            placeholder="Describe el resultado o el defecto encontrado..."></textarea>
-        </div>
-      </div>
-
-      <!-- Footer del modal -->
-      <div class="modal-footer" style="padding:1rem 1.6rem;border-top:1px solid var(--border-subtle);">
-        <button class="btn-ghost" onclick="closeExecutionModal()">Cancelar</button>
-        <button class="btn-primary" id="saveExecutionBtn" onclick="saveExecution()" disabled
-          style="min-width:160px;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-          Guardar Resultado
+      <div class="jlp-header-actions">
+        <button class="jlp-btn-action" onclick="toggleTranscriptDrawer()" title="Minimizar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
         </button>
+        <button class="jlp-btn-action" onclick="toggleTranscriptDrawer()" title="Cerrar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="jlp-body" id="jarvisLogList">
+    </div>
+  </div>
+
+  <!-- Barra de entrada de texto flotante -->
+  <div class="text-input-bar hidden" id="textInputBar">
+    <div class="tib-inner">
+      <input type="text" class="tib-input" id="tibInput" placeholder="Escribe tu consulta para CIEL AI... (Enter para enviar)" onkeydown="if(event.key==='Enter') sendTextToAI()" />
+      <button class="tib-send" onclick="sendTextToAI()" title="Enviar consulta">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+      <button class="tib-close" onclick="toggleTextInput()" title="Cerrar">✕</button>
+    </div>
+  </div>
+
+  <!-- ═══ MODALES DEL SISTEMA ═══ -->
+
+  <!-- Modal: Crear Nuevo Proyecto -->
+  <div class="modal-overlay hidden" id="createProjectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Crear Nuevo Proyecto</h3>
+        <button class="modal-close" onclick="closeCreateProjectModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="newProjectName">Nombre del Proyecto</label>
+          <input type="text" class="form-input" id="newProjectName" placeholder="ej. ChatBot AC, Portal Pagos, App Móvil" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCreateProjectModal()">Cancelar</button>
+        <button class="btn-primary" onclick="submitCreateProject()">Crear Proyecto</button>
       </div>
     </div>
   </div>
 
+  <!-- Modal: Renombrar Proyecto -->
+  <div class="modal-overlay hidden" id="renameProjectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Renombrar Proyecto</h3>
+        <button class="modal-close" onclick="closeRenameProjectModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;">
+          Renombrando proyecto actual: <strong id="renameProjectCurrent" style="color:var(--accent-secondary);">—</strong>
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="renameProjectInput">Nuevo Nombre</label>
+          <input type="text" class="form-input" id="renameProjectInput" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeRenameProjectModal()">Cancelar</button>
+        <button class="btn-primary" onclick="submitRenameProject()">Guardar Nombre</button>
+      </div>
+    </div>
+  </div>
 
-  <!-- Modal de edición de documento -->
+  <!-- Modal: Eliminar Proyecto -->
+  <div class="modal-overlay hidden" id="deleteProjectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color:var(--accent-danger);">Eliminar Proyecto</h3>
+        <button class="modal-close" onclick="closeDeleteProjectModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.85rem;color:var(--text-primary);line-height:1.5;">
+          ¿Estás seguro de que deseas eliminar el proyecto <strong id="deleteProjectName" style="color:var(--accent-danger);">—</strong> y todos sus documentos, casos y ejecuciones asociadas?
+        </p>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Esta acción no se puede deshacer.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeDeleteProjectModal()">Cancelar</button>
+        <button class="btn-primary" style="background:var(--accent-danger);border-color:var(--accent-danger);" onclick="submitDeleteProject()">Eliminar Definitivamente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Editar Documento -->
   <div class="modal-overlay hidden" id="editDocModal">
     <div class="modal">
       <div class="modal-header">
@@ -689,80 +1069,99 @@
     </div>
   </div>
 
-  <!-- Modal de creación de proyecto -->
-  <div class="modal-overlay hidden" id="createProjectModal">
-    <div class="modal">
+  <!-- Modal: Registrar Resultado de Ejecución / Cronómetro -->
+  <div class="modal-overlay hidden" id="executionModal">
+    <div class="modal execution-modal-dialog">
       <div class="modal-header">
-        <h3 class="modal-title">Crear Nuevo Proyecto</h3>
-        <button class="modal-close" onclick="closeCreateProjectModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label" for="newProjectName">Nombre del Proyecto</label>
-          <input type="text" class="form-input" id="newProjectName" placeholder="ej. Salud Total, CRM, Portal Clientes"
-            onkeydown="if(event.key==='Enter')submitCreateProject()" />
+        <div class="exec-modal-title-wrap">
+          <div class="exec-modal-badge" id="modalCaseId">—</div>
+          <h3 class="modal-title" id="modalTestCaseHeader">Registrar Resultado</h3>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeCreateProjectModal()">Cancelar</button>
-        <button class="btn-primary" onclick="submitCreateProject()">Crear Proyecto</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal renombrar proyecto -->
-  <div class="modal-overlay hidden" id="renameProjectModal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">Renombrar Proyecto</h3>
-        <button class="modal-close" onclick="closeRenameProjectModal()">✕</button>
+        <button class="modal-close" onclick="closeExecutionModal()">✕</button>
       </div>
       <div class="modal-body">
-        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Proyecto actual: <strong id="renameProjectCurrent" style="color:var(--text-primary);"></strong></p>
-        <div class="form-group">
-          <label class="form-label" for="renameProjectInput">Nuevo nombre</label>
-          <input type="text" class="form-input" id="renameProjectInput" placeholder="Nuevo nombre del proyecto"
-            onkeydown="if(event.key==='Enter')submitRenameProject()" />
+        <!-- Tarjeta de Resumen del Caso -->
+        <div class="exec-modal-case-box">
+          <div class="exec-modal-case-label">CASO DE PRUEBA</div>
+          <div class="exec-modal-case-text" id="modalTestCaseTitle">Detalles del caso de prueba...</div>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeRenameProjectModal()">Cancelar</button>
-        <button class="btn-primary" onclick="submitRenameProject()">Guardar Nombre</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Modal eliminar proyecto -->
-  <div class="modal-overlay hidden" id="deleteProjectModal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title" style="color:var(--accent-danger);">Eliminar Proyecto</h3>
-        <button class="modal-close" onclick="closeDeleteProjectModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:1rem;text-align:center;padding:0.5rem 0;">
-          <div style="width:52px;height:52px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-danger)" stroke-width="2" width="24" height="24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        <!-- Opciones CUMPLE / NO CUMPLE -->
+        <div class="exec-choices-grid">
+          <button type="button" id="btnCumple" class="btn-execution-choice cumple" onclick="selectResult('CUMPLE')">
+            <span class="choice-icon">✓</span>
+            <div class="choice-text">
+              <div class="choice-title">CUMPLE</div>
+              <div class="choice-sub">La prueba pasó con éxito</div>
+            </div>
+          </button>
+          <button type="button" id="btnNoCumple" class="btn-execution-choice nocumple" onclick="selectResult('NO CUMPLE')">
+            <span class="choice-icon">✕</span>
+            <div class="choice-text">
+              <div class="choice-title">NO CUMPLE</div>
+              <div class="choice-sub">Se detectó una falla / defecto</div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Campos de Incidencia cuando es NO CUMPLE -->
+        <div id="noCumpleFields" class="exec-incident-panel" style="display:none;">
+          <div class="exec-incident-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>Clasificación del Defecto / Incidencia</span>
           </div>
-          <div>
-            <p style="font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">¿Eliminar "<span id="deleteProjectName"></span>"?</p>
-            <p style="font-size:0.8rem;color:var(--text-muted);">Esta acción eliminará el proyecto de la lista. Los documentos y casos de prueba indexados no se borrarán del servidor.</p>
+          <div class="exec-incident-grid">
+            <div class="form-group">
+              <label class="form-label" for="execSeverity">Severidad</label>
+              <select class="form-input" id="execSeverity">
+                <option value="Baja">Baja</option>
+                <option value="Media" selected>Media</option>
+                <option value="Alta">Alta</option>
+                <option value="Crítica">Crítica</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="execIncidentType">Tipo</label>
+              <select class="form-input" id="execIncidentType">
+                <option value="Funcional" selected>Funcional</option>
+                <option value="UI / Visual">UI / Visual</option>
+                <option value="Rendimiento">Rendimiento</option>
+                <option value="Seguridad">Seguridad</option>
+                <option value="Datos / Backend">Datos / Backend</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="execIncidentState">Estado</label>
+              <select class="form-input" id="execIncidentState">
+                <option value="Abierto" selected>Abierto</option>
+                <option value="En Revisión">En Revisión</option>
+                <option value="Bloqueado">Bloqueado</option>
+              </select>
+            </div>
           </div>
+        </div>
+
+        <div class="form-group" style="margin-top:0.85rem;margin-bottom:0;">
+          <label class="form-label" for="execNotes">Notas / Observaciones del Tester (Opcional)</label>
+          <textarea class="form-textarea" id="execNotes" rows="2" placeholder="Detalles de la ejecución, comportamiento observado, etc."></textarea>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeDeleteProjectModal()">Cancelar</button>
-        <button class="btn-primary" style="background:var(--accent-danger);border-color:var(--accent-danger);" onclick="submitDeleteProject()">Sí, Eliminar</button>
+        <button class="btn-ghost" onclick="closeExecutionModal()">Cancelar</button>
+        <button class="btn-primary" id="saveExecutionBtn" onclick="saveExecution()" disabled>Guardar Resultado</button>
       </div>
     </div>
   </div>
 
-  <!-- Toast notifications -->
-  <div class="toast-container" id="toastContainer"></div>
 
-  <script src="/static/js/app.js?v=2.5.0"></script>
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Scripts: app.js primero (define las funciones globales), luego voice.js (las usa) -->
+  <script src="/static/js/app.js?v=4.2.3"></script>
+  <script src="/static/js/voice.js?v=4.2.3"></script>
 </body>
-
-
-
 </html>
