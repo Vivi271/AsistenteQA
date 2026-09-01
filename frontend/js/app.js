@@ -3235,50 +3235,72 @@ window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
 window.finalizeUserInterim = finalizeUserInterim;
 window.appendJarvisLog = appendJarvisLog;
 
-// Respuestas inmediatas (< 100ms) para comandos y consultas comunes
+// Respuestas inmediatas (< 100ms) para comandos, dudas de navegación y conceptos clave
 function _getInstantResponse(query) {
   const q = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|que tal|saludos)/.test(q)) {
-    return "¡Hola! Soy CIEL AI, tu asistente de aseguramiento de calidad en PRQA.\n¿Deseas consultar sobre la base de conocimiento, generar casos EOPA o registrar pruebas?";
-  }
-  if (q.includes("que sabes hacer") || q.includes("que puedes hacer") || q.includes("quien eres") || q.includes("ayuda") || q.includes("que es esto")) {
-    return "Soy CIEL AI, el asistente de calidad de software de Ciel Ingeniería S.A.S.\nPuedo ayudarte en:\n1. **Base de Conocimiento**: Cargar y consultar requerimientos MTR y BRD.\n2. **Generar Casos EOPA**: Crear matrices de prueba automatizadas en Excel DTR029C.\n3. **Ejecutar Pruebas**: Registrar resultados CUMPLE o NO CUMPLE y severidades.\n4. **Tiempos de Ejecución**: Cronometrar tus sesiones de prueba.\n5. **Dashboard**: Monitorear KPIs e indicadores de calidad.";
-  }
-  if (q.includes("que es prqa") || q.includes("para que sirve prqa") || q.includes("de que trata la app")) {
-    return "PRQA es la plataforma local y privada de Calidad de Software para Ciel Ingeniería S.A.S. Permite analizar requerimientos, generar matrices EOPA DTR029C y validar pruebas sin enviar datos a internet.";
-  }
-  if (q.includes("base de conocimiento") || q.includes("cargar documento") || q.includes("subir documento") || q.includes("como indexar")) {
-    return "En el módulo **Base de Conocimiento** puedes arrastrar documentos técnicos en PDF, Word o Excel (MTR, BRD o Plantillas).\nEl sistema los fragmenta e indexa semánticamente en ChromaDB para usarlos como contexto en tus pruebas.";
-  }
-  if (q.includes("como genero casos") || q.includes("generar casos") || q.includes("crear casos") || q.includes("matriz de prueba") || q.includes("eopa")) {
-    return "Para generar casos de prueba:\n1. Ve al módulo **Generar Casos**.\n2. Selecciona los tipos de prueba (Funcionales, Negativos, Seguridad, etc.).\n3. Escribe o pega el requerimiento y define la cantidad.\n4. Presiona **Generar Casos de Prueba** para descargar tu Excel DTR029C.";
-  }
-  if (q.includes("ejecutar pruebas") || q.includes("cumple") || q.includes("no cumple") || q.includes("registrar prueba")) {
-    return "En **Ejecutar Pruebas** visualizas los casos del proyecto activo. Para cada uno marcas **CUMPLE** o **NO CUMPLE**.\nSi no cumple, puedes clasificar la severidad (Crítica, Alta, Media, Baja) e incidencias para el Dashboard.";
-  }
-  if (q.includes("tiempo") || q.includes("cronometro") || q.includes("productividad") || q.includes("temporizador")) {
-    return "En **Tiempos de Ejecución** puedes iniciar, pausar y registrar el cronómetro de tus sesiones de testing para medir la productividad del tester.";
-  }
-  if (q.includes("dashboard") || q.includes("metricas") || q.includes("indicadores") || q.includes("kpi")) {
-    return "El **Dashboard** consolida en tiempo real los KPIs del ciclo: Total de Casos, Tasa de Éxito, distribución por tipo de prueba y defectos por severidad.";
-  }
-
-  // Filtro de preguntas fuera de contexto PRQA — solo responder sobre la aplicación
-  const topicosOk = [
-    'prqa', 'ciel', 'prueba', 'caso', 'documento', 'mtr', 'brd', 'excel', 'eopa', 'dtr',
-    'requerimiento', 'modulo', 'base de conocimiento', 'generador', 'execut', 'tiempo',
-    'dashboard', 'kpi', 'asistente', 'ia', 'voz', 'transcripcion', 'calidad', 'qa',
-    'testing', 'proyecto', 'subir', 'cargar', 'indexar', 'fragmentar', 'cumple', 'no cumple',
-    'severidad', 'defecto', 'software', 'chromadb', 'llama', 'plantilla', 'formato',
-    'descargar', 'generar', 'registrar', 'funcionan', 'funciona', 'como'
-  ];
-  const tieneTopico = topicosOk.some(t => q.includes(t));
-  const esCorto = q.split(' ').length <= 3; // saludos y frases muy cortas se dejan pasar
-  if (!tieneTopico && !esCorto) {
-    return "Solo puedo responder preguntas sobre la aplicación **PRQA** de Ciel Ingeniería S.A.S.\n\nPuedo ayudarte con:\n• Subir documentos MTR, BRD o plantillas\n• Generar casos de prueba EOPA\n• Registrar resultados CUMPLE / NO CUMPLE\n• Consultar métricas del Dashboard\n• Controlar tiempos de ejecución";
+  // 1. Preguntas de ayuda general / Cómo funciona la app / No entiendo / Por dónde empezar / Guíame
+  if (
+    q.includes("como funciona") ||
+    q.includes("no entiendo") ||
+    q.includes("como se usa") ||
+    q.includes("por donde empiezo") ||
+    q.includes("por donde comienzo") ||
+    q.includes("explicame") ||
+    q.includes("ayuda") ||
+    q.includes("que hago") ||
+    q.includes("que es esto") ||
+    q.includes("de que trata") ||
+    q.includes("que puedes hacer") ||
+    q.includes("que sabes hacer") ||
+    q.includes("quien eres") ||
+    q.includes("instrucciones") ||
+    q.includes("guia")
+  ) {
+    return "¡Con gusto te explico cómo funciona **PRQA**! La plataforma te guía a través de un flujo de 4 pasos para asegurar la calidad de tu software:\n\n" +
+      "1️⃣ **Base de Conocimiento (Paso 1):** Sube tus documentos de requerimientos (PDF, Word o Excel como MTR/BRD). El sistema los indexa en ChromaDB para usarlos como contexto.\n" +
+      "2️⃣ **Generar Casos (Paso 2):** Elige los tipos de prueba (Funcionales, Negativos, Seguridad, etc.), escribe tu requerimiento y haz clic en **Generar** para obtener tu matriz Excel oficial en formato **EOPA DTR029C**.\n" +
+      "3️⃣ **Ejecutar Pruebas (Paso 3):** Revisa cada caso generado y registra si **CUMPLE** o **NO CUMPLE**, asignando la severidad si encuentras algún defecto.\n" +
+      "4️⃣ **Tiempos y Dashboard (Paso 4):** Mide la velocidad de ejecución con el cronómetro HUD integrado y monitorea los KPIs del ciclo de calidad en el Dashboard.\n\n" +
+      "💡 *¿Sobre cuál de estos pasos te gustaría que te oriente en detalle?*";
   }
 
+  // 2. Saludo simple
+  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|que tal|saludos)[.!? ]*$/.test(q)) {
+    return "¡Hola! Soy **CIEL AI**, tu asistente de aseguramiento de calidad de Ciel Ingeniería S.A.S.\n\n¿En qué te puedo colaborar hoy? Puedes consultarme sobre tus requerimientos, pedirme ayuda para generar casos de prueba EOPA o pedirme que te guíe en el uso de la plataforma.";
+  }
+
+  // 3. Qué es PRQA
+  if (q.includes("que es prqa") || q.includes("para que sirve prqa")) {
+    return "**PRQA** es la plataforma local y privada de Calidad de Software para **Ciel Ingeniería S.A.S.** Te permite procesar documentos técnicos, generar matrices de prueba automáticas en formato estándar **EOPA DTR029C**, cronometrar tiempos y registrar ejecuciones con total soberanía y confidencialidad de datos.";
+  }
+
+  // 4. Módulo 1: Base de conocimiento
+  if (q.includes("base de conocimiento") || q.includes("cargar documento") || q.includes("subir documento") || q.includes("como indexar") || q.includes("subir archivo")) {
+    return "En el módulo **Base de Conocimiento** (Paso 1) puedes arrastrar o seleccionar archivos en formato PDF, Word o Excel (MTR, BRD o Plantillas).\nEl sistema fragmenta e indexa el contenido en la base de datos vectorial ChromaDB para alimentar a la IA al generar casos o responder preguntas.";
+  }
+
+  // 5. Módulo 2: Generador de casos
+  if (q.includes("como genero casos") || q.includes("generar casos") || q.includes("crear casos") || q.includes("matriz de prueba") || q.includes("eopa") || q.includes("dtr029c")) {
+    return "Para generar casos de prueba:\n1. Ve a **Generar Casos** (Paso 2).\n2. Selecciona los tipos de prueba deseados (Funcionales, Negativos, Seguridad, Integración, UI/UX o Carga).\n3. Escribe o pega el requerimiento funcional.\n4. Define la cantidad de casos y presiona **Generar Casos de Prueba** para descargar tu matriz Excel DTR029C.";
+  }
+
+  // 6. Módulo 3: Ejecución de pruebas
+  if (q.includes("ejecutar pruebas") || q.includes("cumple") || q.includes("no cumple") || q.includes("registrar prueba") || q.includes("marcar prueba")) {
+    return "En **Ejecutar Pruebas** (Paso 3) puedes ver la lista de casos de prueba del proyecto activo.\nPara cada uno puedes marcar **CUMPLE** o **NO CUMPLE**.\nSi marcas *NO CUMPLE*, puedes clasificar la severidad (Crítica, Alta, Media, Baja) y detallar el incidente para el Dashboard.";
+  }
+
+  // 7. Módulo 4: Tiempos / Cronómetro
+  if (q.includes("tiempo") || q.includes("cronometro") || q.includes("productividad") || q.includes("temporizador") || q.includes("medir tiempo")) {
+    return "En **Tiempos de Ejecución** (Paso 4) cuentas con un cronómetro digital interactivo para medir el tiempo real que tardas en probar cada caso, registrando estadísticas de productividad y promedios por módulo.";
+  }
+
+  // 8. Módulo 5: Dashboard
+  if (q.includes("dashboard") || q.includes("metricas") || q.includes("indicadores") || q.includes("kpi") || q.includes("reporte")) {
+    return "El **Dashboard** resume los indicadores del ciclo QA en tiempo real: Total de Casos, Tasa de Éxito (% de cumplimiento), distribución por tipo de prueba y reporte de defectos por severidad.";
+  }
+
+  // Si no coincide con las respuestas inmediatas, pasa al modelo RAG en backend
   return null;
 }
 
