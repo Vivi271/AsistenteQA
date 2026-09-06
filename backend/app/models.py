@@ -43,6 +43,7 @@ class TestCase(Base):
     notes = Column(Text, nullable=True)
     incident_type = Column(String, nullable=True)      # Error | Mejora (cuando NO CUMPLE)
     incident_state = Column(String, nullable=True)     # Abierto | Re-abierto | Cerrado
+    export_file = Column(String, nullable=True)        # Archivo Excel específico asociado
     created_at = Column(DateTime, default=datetime.now)
     executed_at = Column(DateTime, nullable=True)
 

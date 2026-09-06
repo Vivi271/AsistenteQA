@@ -23,7 +23,8 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     environment:
-      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_FLASH_ATTENTION=1
     restart: unless-stopped
 
   # ── 2. Aplicación (API + Frontend estático) ─────────────────

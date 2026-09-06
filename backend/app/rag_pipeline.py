@@ -26,36 +26,40 @@ EMBED_MODEL = "nomic-embed-text"
 CHROMA_PATH = os.getenv("CHROMA_PATH", "/app/chroma_db")
 COLLECTION_NAME = "prqa_knowledge"
 
-SYSTEM_PROMPT = """Eres CIEL AI, la asistente oficial de Inteligencia Artificial para Aseguramiento de Calidad (QA) de Ciel Ingeniería S.A.S., integrada en la plataforma PRQA.
+SYSTEM_PROMPT = """Eres CIEL AI, la asistente oficial de Aseguramiento de Calidad (QA) de Ciel Ingeniería S.A.S. en la plataforma PRQA.
+Tu rol es orientar a los ingenieros en el flujo de calidad: Base de Conocimiento, Generación de Casos EOPA DTR029C, Ejecución de Pruebas y Dashboard.
 
-TU ROL Y MISIÓN:
-Ayudar a los testers e ingenieros de calidad a comprender la plataforma PRQA, analizar requerimientos de software y generar o validar casos de prueba de forma profesional, clara y pedagógica.
+REGLAS DE RESPUESTA:
+- Responde siempre en español, de forma cordial, profesional y concisa.
+- Sé directa: responde en máximo 2 a 3 puntos breves o un párrafo corto.
+- Concluye siempre tus oraciones con punto final. Nunca dejes listas cortadas ni numeraciones vacías.{context_block}"""
 
-ESTRUCTURA DE LA PLATAFORMA PRQA (FLUJO DE 4 PASOS):
-1. 📂 Base de Conocimiento (Paso 1): Carga e indexación semántica de documentos técnicos (PDF, Word, Excel como MTR o BRD) en ChromaDB para usarlos como contexto inteligente.
-2. ⚡ Generar Casos (Paso 2): Creación automática de matrices de prueba en Excel estándar EOPA DTR029C según los tipos seleccionados (Funcionales, Negativos, Seguridad, Integración, UI/UX, Carga).
-3. 📋 Ejecutar Pruebas (Paso 3): Registro de resultados reales (CUMPLE / NO CUMPLE), asignación de severidad a defectos (Crítica, Alta, Media, Baja) e incidencias.
-4. ⏱️ Tiempos de Ejecución (Paso 4): Cronómetro digital HUD integrado para medir la duración de las pruebas y la productividad del tester.
-5. 📊 Dashboard: Panel de analíticas que consolida en tiempo real los KPIs del ciclo: Total de casos, Tasa de Éxito y defectos por severidad.
 
-PAUTAS DE RESPUESTA:
-- Responde SIEMPRE en español, con tono profesional, claro, estructurado y muy cordial.
-- Si el usuario dice que "no entiende", pide ayuda o pregunta cómo funciona la plataforma, explícale de forma amigable y paso a paso el flujo de PRQA. NUNCA confundas la aplicación PRQA con los documentos del proyecto.
-- Si la pregunta es sobre el proyecto activo o requerimientos específicos, responde utilizando el contexto de documentos indexados y cita el nombre del documento fuente.
-- Si el contexto proporcionado no contiene la respuesta a una pregunta sobre el proyecto, dilo amablemente y orienta al usuario sobre qué documento subir o consultar.
-- Mantén tus explicaciones concretas, directas y fáciles de entender.
+def is_conversational_query(text: str) -> bool:
+    """Detecta si la consulta es un saludo o pregunta general sobre CIEL AI/PRQA que no requiere buscar en documentos del proyecto."""
+    q = text.lower().strip()
+    doc_keywords = ["requisito", "requerimiento", "criterio", "historia", "contrato", "prd", "brd", "mtr", "tabla", "modulo", "módulo", "endpoint", "api"]
+    if any(k in q for k in doc_keywords):
+        return False
+    meta_patterns = [
+        "hola", "buen", "saludos", "que tal", "qué tal", "que mas", "qué más",
+        "que sabes hacer", "qué sabes hacer", "que puedes hacer", "qué puedes hacer",
+        "quien eres", "quién eres", "como te llamas", "cómo te llamas",
+        "ciel ai", "ciel", "para que sirves", "para qué sirves",
+        "que es prqa", "qué es prqa", "como funciona", "cómo funciona",
+        "ayuda", "help", "gracias", "muchas gracias", "adios", "adiós", "chao"
+    ]
+    return any(p in q for p in meta_patterns)
 
-CONTEXTO DE DOCUMENTOS DEL PROYECTO (USAR SOLO SI APLICA):
-{context}
-"""
 
 
 class RAGPipeline:
     """Pipeline RAG que combina ChromaDB para recuperación y Ollama para generación."""
 
     def __init__(self):
-        # Inicializar cliente Ollama con timeout ampliado para CPU
-        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=180.0)
+        # Inicializar cliente Ollama síncrono y asíncrono con timeout ampliado para CPU
+        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=300.0)
+        self.async_ollama = ollama.AsyncClient(host=OLLAMA_HOST, timeout=300.0)
 
         # Inicializar ChromaDB persistente
         Path(CHROMA_PATH).mkdir(parents=True, exist_ok=True)
@@ -200,8 +204,15 @@ class RAGPipeline:
 
         return len(chunks)
 
-    async def retrieve(self, query: str, n_results: int = 3, project_name: str = None) -> Tuple[str, List[str]]:
-        """Recupera los fragmentos más relevantes para una consulta, filtrando por relevancia semántica."""
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 3,
+        project_name: str = None,
+        doc_names: List[str] = None,
+        max_distance: float = 0.60
+    ) -> Tuple[str, List[str]]:
+        """Recupera los fragmentos más relevantes para una consulta, filtrando opcionalmente por proyecto y documentos específicos."""
         if self.collection.count() == 0:
             return "", []
 
@@ -216,17 +227,29 @@ class RAGPipeline:
             "n_results": min(n_results, self.collection.count()),
             "include": ["documents", "metadatas", "distances"],
         }
+
+        # Construir filtro 'where' combinando proyecto y/o documentos específicos
+        conditions = []
         if project_name:
-            query_kwargs["where"] = {"project": project_name}
+            conditions.append({"project": project_name})
+        if doc_names and len(doc_names) > 0:
+            clean_docs = [str(d).strip() for d in doc_names if str(d).strip()]
+            if len(clean_docs) == 1:
+                conditions.append({"source": clean_docs[0]})
+            elif len(clean_docs) > 1:
+                conditions.append({"source": {"$in": clean_docs}})
+
+        if len(conditions) == 1:
+            query_kwargs["where"] = conditions[0]
+        elif len(conditions) > 1:
+            query_kwargs["where"] = {"$and": conditions}
 
         results = self.collection.query(**query_kwargs)
 
         if not results["documents"] or not results["documents"][0]:
             return "", []
 
-        # Filtrar fragmentos con distancia coseno alta (> 0.55 = baja relevancia semántica)
-        # Distancia coseno: 0 = idéntico, 1 = opuesto. < 0.55 = relevante.
-        MAX_DISTANCE = 0.55
+        # Filtrar fragmentos con distancia coseno según umbral
         filtered_docs = []
         filtered_sources = []
         distances = results.get("distances", [[]])[0]
@@ -236,12 +259,17 @@ class RAGPipeline:
             results["metadatas"][0],
             distances
         ):
-            if dist <= MAX_DISTANCE:
+            if dist <= max_distance:
                 filtered_docs.append(doc)
                 filtered_sources.append(meta["source"])
 
+        # Si el filtro estricto descartó todo pero el usuario seleccionó documentos específicos,
+        # devolver los mejores fragmentos disponibles del documento elegido
+        if not filtered_docs and doc_names and results["documents"][0]:
+            filtered_docs = results["documents"][0][:n_results]
+            filtered_sources = [m["source"] for m in results["metadatas"][0][:n_results]]
+
         if not filtered_docs:
-            # Ningún fragmento es lo suficientemente relevante
             return "", []
 
         context = "\n\n---\n\n".join(filtered_docs)
@@ -249,20 +277,25 @@ class RAGPipeline:
         return context, sources
 
     async def query(self, question: str, use_knowledge_base: bool = True, project_name: str = None) -> Tuple[str, List[str]]:
-        """Consulta al LLM con contexto RAG y parámetros optimizados para CPU."""
+        """Consulta 100% generada por el LLM local (Ollama) con contexto RAG."""
         self._check_ready()
         if not self._ready:
-            raise RuntimeError("Ollama no está disponible.")
+            raise RuntimeError("El servidor de IA local (Ollama) no está disponible.")
 
         context = ""
         sources = []
 
-        if use_knowledge_base:
-            context, sources = await self.retrieve(question, project_name=project_name)
+        if use_knowledge_base and not is_conversational_query(question):
+            try:
+                context, sources = await self.retrieve(question, project_name=project_name, n_results=2, max_distance=0.48)
+            except Exception as e:
+                print(f"Aviso al recuperar contexto RAG para chat: {e}")
 
-        prompt = SYSTEM_PROMPT.format(
-            context=context if context else "No hay documentos indexados en este proyecto."
-        )
+        context_block = ""
+        if context:
+            context_block = f"\n\nDOCUMENTOS DE REFERENCIA DEL PROYECTO:\n{context}\n\nUsa únicamente la información anterior si la pregunta del usuario lo requiere."
+
+        prompt = SYSTEM_PROMPT.format(context_block=context_block)
 
         response = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -272,11 +305,12 @@ class RAGPipeline:
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": question},
                 ],
+                keep_alive="24h",
                 options={
-                    "temperature": 0.35,
+                    "temperature": 0.3,
                     "num_predict": 350,
                     "num_ctx": 2048,
-                    "num_thread": 6,
+                    "num_thread": 4,
                     "top_k": 30,
                     "top_p": 0.90
                 },
@@ -287,38 +321,49 @@ class RAGPipeline:
         return answer, sources
 
     async def stream_query(self, question: str, use_knowledge_base: bool = True, project_name: str = None) -> AsyncIterator[str]:
-        """Streaming del LLM con contexto RAG."""
+        """Streaming del LLM con contexto RAG asíncrono y no bloqueante."""
         self._check_ready()
         if not self._ready:
             yield "Error: Ollama no está disponible."
             return
 
         context = ""
-        if use_knowledge_base:
-            context, _ = await self.retrieve(question, project_name=project_name)
+        if use_knowledge_base and not is_conversational_query(question):
+            try:
+                context, _ = await self.retrieve(question, project_name=project_name, n_results=2, max_distance=0.48)
+            except Exception as e:
+                print(f"Aviso en streaming RAG: {e}")
 
-        prompt = SYSTEM_PROMPT.format(
-            context=context if context else "No hay documentos indexados en este proyecto."
-        )
+        context_block = ""
+        if context:
+            context_block = f"\n\nDOCUMENTOS DE REFERENCIA DEL PROYECTO:\n{context}\n\nUsa únicamente la información anterior si la pregunta del usuario lo requiere."
 
-        stream = self.ollama_client.chat(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": question},
-            ],
-            stream=True,
-            options={
-                "temperature": 0.35,
-                "num_predict": 350,
-                "num_ctx": 2048,
-                "num_thread": 6
-            },
-        )
+        prompt = SYSTEM_PROMPT.format(context_block=context_block)
 
-        for chunk in stream:
-            if chunk.get("message", {}).get("content"):
-                yield chunk["message"]["content"]
+        try:
+            stream = await self.async_ollama.chat(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": question},
+                ],
+                stream=True,
+                keep_alive="24h",
+                options={
+                    "temperature": 0.2,
+                    "num_predict": 180,
+                    "num_ctx": 2048,
+                    "num_thread": 4
+                },
+            )
+
+            async for chunk in stream:
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield content
+        except Exception as e:
+            print(f"Error en stream_query: {e}")
+            yield f"Error al generar respuesta: {str(e)}"
 
     async def remove_document(self, file_path: str):
         """Elimina los fragmentos de un documento de ChromaDB."""

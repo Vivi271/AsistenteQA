@@ -87,7 +87,7 @@ function speak(text, opts = {}) {
   // Detener cualquier habla previa
   stopSpeaking();
 
-  // Limpiar texto: quitar markdown, emojis y truncar
+  // Limpiar texto: formatear saltos y bullets para que suene continuo y natural
   const clean = _cleanTextForSpeech(text);
   if (!clean.trim()) {
     if (typeof opts.onEnd === 'function') opts.onEnd();
@@ -113,7 +113,13 @@ function speak(text, opts = {}) {
   utterance.onstart = () => {
     _currentUtterance = utterance;
     _updateVoiceIndicator(true);
-    if (typeof opts.onStart === 'function') opts.onStart();
+    if (typeof opts.onStart === 'function') opts.onStart(clean);
+  };
+
+  utterance.onboundary = (e) => {
+    if (typeof opts.onBoundary === 'function') {
+      opts.onBoundary(e, clean);
+    }
   };
 
   utterance.onend = onDone;
@@ -128,10 +134,104 @@ function speak(text, opts = {}) {
   window.speechSynthesis.speak(utterance);
 }
 
-/** Detiene inmediatamente cualquier habla activa. */
+// Cola de habla secuencial para streaming de oraciones en tiempo real
+let _speechQueue = [];
+let _isProcessingQueue = false;
+let _queueEndCallback = null;
+let _isStreamingActive = false;
+
+/**
+ * Prepara la cola de voz para recibir oraciones en tiempo real mientras la IA genera texto.
+ */
+function initStreamSpeech(onAllDone) {
+  stopSpeaking();
+  _speechQueue = [];
+  _isProcessingQueue = false;
+  _queueEndCallback = onAllDone;
+  _isStreamingActive = true;
+}
+
+/**
+ * Añade una oración completada a la cola de voz y la reproduce de inmediato si no hay otra sonando.
+ */
+function queueSentence(sentence) {
+  if (!_ttsEnabled || !window.speechSynthesis) return;
+  const clean = _cleanTextForSpeech(sentence);
+  if (!clean || clean.length < 2) return;
+  _speechQueue.push(clean);
+  _drainSpeechQueue();
+}
+
+/**
+ * Avisa que la IA terminó de emitir texto. Si la cola ya se vació, notifica fin.
+ */
+function finishStreamSpeech() {
+  _isStreamingActive = false;
+  if (_speechQueue.length === 0 && !_isProcessingQueue) {
+    _updateVoiceIndicator(false);
+    if (typeof _queueEndCallback === 'function') {
+      const cb = _queueEndCallback;
+      _queueEndCallback = null;
+      cb();
+    }
+  }
+}
+
+function _drainSpeechQueue() {
+  if (_isProcessingQueue || _speechQueue.length === 0) return;
+  if (!_ttsEnabled || !window.speechSynthesis) return;
+
+  const text = _speechQueue.shift();
+  _isProcessingQueue = true;
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate   = VoiceConfig.rate;
+  utterance.pitch  = VoiceConfig.pitch;
+  utterance.volume = VoiceConfig.volume;
+  if (_ttsVoice) utterance.voice = _ttsVoice;
+  utterance.lang = VoiceConfig.lang;
+
+  utterance.onstart = () => {
+    _currentUtterance = utterance;
+    _updateVoiceIndicator(true);
+  };
+
+  const onSentenceEnd = () => {
+    _currentUtterance = null;
+    _isProcessingQueue = false;
+    if (_speechQueue.length > 0) {
+      _drainSpeechQueue();
+    } else {
+      if (!_isStreamingActive) {
+        _updateVoiceIndicator(false);
+        if (typeof _queueEndCallback === 'function') {
+          const cb = _queueEndCallback;
+          _queueEndCallback = null;
+          cb();
+        }
+      }
+    }
+  };
+
+  utterance.onend = onSentenceEnd;
+  utterance.onerror = (e) => {
+    if (e.error !== 'interrupted' && e.error !== 'canceled') {
+      console.warn('[PRQA Voice] Chunk TTS error:', e.error);
+    }
+    onSentenceEnd();
+  };
+
+  window.speechSynthesis.speak(utterance);
+}
+
+/** Detiene inmediatamente cualquier habla activa y vacía la cola. */
 function stopSpeaking() {
+  _speechQueue = [];
+  _isProcessingQueue = false;
+  _isStreamingActive = false;
+  _queueEndCallback = null;
   if (window.speechSynthesis) {
-    window.speechSynthesis.cancel();
+    try { window.speechSynthesis.cancel(); } catch (_) {}
   }
   _currentUtterance = null;
   _updateVoiceIndicator(false);
@@ -144,7 +244,6 @@ function toggleTTS() {
 
   if (!_ttsEnabled) {
     stopSpeaking();
-    if (typeof appendJarvisLog === 'function') appendJarvisLog('system', '🔇 Voz silenciada');
     showToast('🔇 Voz silenciada', 'info');
     if (window._isAIProcessing && typeof _setStopBtnActive === 'function') {
       // Si la IA estaba hablando y se silencia, liberar el estado
@@ -153,7 +252,6 @@ function toggleTTS() {
       setOrbState('idle');
     }
   } else {
-    if (typeof appendJarvisLog === 'function') appendJarvisLog('system', '🔊 Voz activada');
     showToast('🔊 CIEL AI activada', 'success');
     if (window._lastAIResponse) {
       if (typeof _setStopBtnActive === 'function') _setStopBtnActive(true);
@@ -178,33 +276,44 @@ function isTTSEnabled() { return _ttsEnabled; }
 
 /**
  * Inicia o detiene el reconocimiento de voz.
- * Transcribe al campo de texto del chat (chatInput).
  */
 function toggleMic() {
   if (!_sttRecognition) {
-    showToast('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.', 'warning');
+    initVoice();
+  }
+  if (!_sttRecognition) {
+    showToast('Tu navegador no soporta reconocimiento de voz. Usa Google Chrome o Edge.', 'warning');
     return;
   }
 
   // Bloquear el mic si CIEL AI está procesando o hablando
   if (window._isAIProcessing) {
-    showToast('⚠️ CIEL AI está ocupada. Presiona DETENER para interrumpir.', 'warning');
+    showToast('⚠️ CIEL AI está respondiendo. Presiona DETENER para interrumpir.', 'warning');
     return;
   }
 
-  // Abrir el drawer si está cerrado
-  const drawer = document.getElementById('chatDrawer');
-  if (drawer && !drawer.classList.contains('open')) {
-    if (typeof toggleChatDrawer === 'function') toggleChatDrawer();
+  // Abrir panel de transcripción si está cerrado para ver la voz en vivo
+  if (typeof toggleTranscriptDrawer === 'function') {
+    const panel = document.getElementById('jarvisLogPanel');
+    if (panel && panel.classList.contains('hidden')) {
+      toggleTranscriptDrawer();
+    }
   }
 
   if (_isListening) {
-    _sttRecognition.stop();
+    _isListening = false;
+    try { _sttRecognition.stop(); } catch (_) {}
+    setOrbState('idle');
+    _updateMicButton(false);
   } else {
     try {
       _sttRecognition.start();
     } catch(e) {
       console.warn('[PRQA Voice] STT start error:', e);
+      try {
+        _sttRecognition.stop();
+        setTimeout(() => { try { _sttRecognition.start(); } catch(_) {} }, 200);
+      } catch(_) {}
     }
   }
 }
@@ -213,42 +322,55 @@ function _onSpeechStart() {
   _isListening = true;
   _updateMicButton(true);
   setOrbState('listening');
-  showToast('🎤 Escuchando...', 'info');
+  showToast('🎤 Escuchando... habla ahora', 'info');
+}
+
+function abortListening() {
+  _isListening = false;
+  try {
+    if (_sttRecognition) _sttRecognition.abort();
+  } catch (_) {}
+  _updateMicButton(false);
 }
 
 function _onSpeechResult(event) {
-  let transcript = '';
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    transcript += event.results[i][0].transcript;
+  if (window._isAIProcessing) {
+    // Si la IA ya está procesando o respondiendo, ignorar cualquier audio captado por el mic
+    abortListening();
+    return;
   }
 
-  const input = document.getElementById('chatInput');
-  if (input) {
-    input.value = transcript;
-    if (typeof autoResizeTextarea === 'function') autoResizeTextarea(input);
-  }
+  let interimTranscript = '';
+  let finalTranscript = '';
 
-  const isFinal = event.results[event.results.length - 1].isFinal;
-  if (isFinal && transcript.trim()) {
-    // Marcar como NO escuchando INMEDIATAMENTE para bloquear reintentos
-    _isListening = false;
-    _sttRecognition.stop();
-    setOrbState('processing');
-
-    // Bloqueo definitivo: no enviar si la IA ya está procesando
-    if (window._isAIProcessing) {
-      showToast('⚠️ CIEL AI está ocupada. Espera que termine.', 'warning');
-      setOrbState('idle');
-      return;
+  for (let i = 0; i < event.results.length; ++i) {
+    if (event.results[i].isFinal) {
+      finalTranscript += event.results[i][0].transcript;
+    } else {
+      interimTranscript += event.results[i][0].transcript;
     }
+  }
 
-    setTimeout(() => {
-      if (typeof queryCielAI === 'function') {
-        queryCielAI(transcript.trim());
-      } else if (typeof sendMessage === 'function') {
-        sendMessage();
-      }
-    }, 250);
+  const currentDisplay = (finalTranscript + ' ' + interimTranscript).trim();
+
+  // Mostrar transcripción en tiempo real en el panel
+  if (typeof appendOrUpdateUserInterim === 'function' && currentDisplay) {
+    appendOrUpdateUserInterim(currentDisplay);
+  }
+
+  const lastResult = event.results[event.results.length - 1];
+  if (lastResult && lastResult.isFinal) {
+    const fullText = (finalTranscript || currentDisplay).trim();
+    if (fullText.length > 0) {
+      abortListening();
+      setOrbState('processing');
+
+      setTimeout(() => {
+        if (typeof queryCielAI === 'function') {
+          queryCielAI(fullText);
+        }
+      }, 150);
+    }
   }
 }
 
@@ -258,7 +380,7 @@ function _onSpeechError(event) {
   const msg = {
     'network': 'Sin conexión de red para el reconocimiento de voz.',
     'not-allowed': 'Permiso de micrófono denegado. Habilítalo en el navegador.',
-    'no-speech': 'No se detectó voz. Intenta de nuevo.',
+    'no-speech': null, // No spamear alerta si solo hubo silencio
     'aborted': null,
   }[event.error];
   if (msg) showToast(msg, 'warning');
@@ -267,8 +389,6 @@ function _onSpeechError(event) {
 function _onSpeechEnd() {
   _isListening = false;
   _updateMicButton(false);
-  // Solo volver a idle si la IA NO está procesando
-  // (si está procesando, el orb ya está en 'processing' o 'speaking')
   if (!window._isAIProcessing) {
     setOrbState('idle');
   }
@@ -338,40 +458,26 @@ function setOrbState(state) {
  * Actualiza el estado visual de la barra "HABLAR CON CIEL AI" inferior.
  */
 function _setJtbState(state) {
-  const center = document.getElementById('jtbCenter');
-  const label  = document.getElementById('jtbLabel');
-  const dot    = document.querySelector('.jtb-dot');
+  const center = document.getElementById('jtbCenter') || document.querySelector('.jtb-center-area');
+  const label  = document.getElementById('voiceStatusText') || document.getElementById('jtbSubLabel') || document.getElementById('jtbLabel');
+  const cloud  = document.getElementById('energyCloud') || document.getElementById('jarvisEnergyCloud');
+  const bar    = document.getElementById('jarvisTalkBar');
+  const stopBtn = document.getElementById('tpStopBtn');
 
-  if (!center) return;
-  center.classList.remove('jtb-listening', 'jtb-speaking', 'jtb-processing');
+  if (center) {
+    center.classList.remove('jtb-listening', 'jtb-speaking', 'jtb-processing');
+    if (state !== 'idle') center.classList.add(`jtb-${state}`);
+  }
 
-  const map = {
-    listening:  { cls: 'jtb-listening',  label: 'ESCUCHANDO...',   dot: '#10b981' },
-    processing: { cls: 'jtb-processing', label: 'PROCESANDO...',   dot: '#f59e0b' },
-    speaking:   { cls: 'jtb-speaking',   label: 'HABLANDO...',     dot: '#00e5ff' },
-    idle:       { cls: '',               label: 'HABLAR CON CIEL AI', dot: '#10b981' },
-    listening:  { cls: 'jtb-listening',  label: 'ESCUCHANDO...',      dot: '#10b981' },
-    processing: { cls: 'jtb-processing', label: 'ANALIZANDO...',      dot: '#f59e0b' },
-    speaking:   { cls: 'jtb-speaking',   label: 'RESPONDIENDO...',    dot: '#00e5ff' },
-  };
-
-  const s = map[state] || map.idle;
-  if (s.cls) center.classList.add(s.cls);
-  if (label) label.textContent = s.label;
-  if (dot)   { dot.style.background = s.dot; dot.style.boxShadow = `0 0 8px ${s.dot}cc`; }
-
-  // Actualizar sublabel
   const subLabels = {
     idle:       'Toca para comenzar...',
     listening:  'Escuchando...',
     processing: 'Procesando...',
-    speaking:   'Respondiendo...',
+    speaking:   'Hablando...',
   };
-  const subLabel = document.getElementById('jtbSubLabel');
-  if (subLabel) subLabel.textContent = subLabels[state] || 'Toca para comenzar...';
+  if (label) label.textContent = subLabels[state] || 'Toca para comenzar...';
 
-  // Animar el energy cloud orb
-  const cloud = document.getElementById('jarvisEnergyCloud');
+  // Animar el energy cloud orb central
   if (cloud) {
     cloud.classList.remove('ec-listening', 'ec-speaking', 'ec-processing');
     if (state === 'listening')  cloud.classList.add('ec-listening');
@@ -380,23 +486,31 @@ function _setJtbState(state) {
   }
 
   // Animar los dots de la barra según el estado
-  const bar = document.getElementById('jarvisTalkBar');
   if (bar) {
     bar.classList.remove('jtb-active', 'jtb-listening');
     if (state === 'speaking')  bar.classList.add('jtb-active');
     if (state === 'listening') bar.classList.add('jtb-listening');
   }
 
-  // Log en el terminal de transcripción
-  if (typeof appendJarvisLog === 'function') {
-    const logMap = {
-      listening:  'CIEL AI · Escuchando entrada de voz',
-      processing: 'CIEL AI · Consultando IA...',
-      idle:       null,
-      speaking:   null,
-    };
-    if (logMap[state]) appendJarvisLog('system', logMap[state]);
+  // Botón DETENER / EN ESPERA
+  if (stopBtn) {
+    const span = stopBtn.querySelector('span');
+    if (state === 'speaking' || state === 'processing') {
+      stopBtn.classList.remove('is-idle');
+      stopBtn.classList.add('is-active');
+      stopBtn.removeAttribute('disabled');
+      stopBtn.title = 'Detener respuesta de CIEL AI';
+      if (span) span.textContent = 'DETENER';
+    } else {
+      stopBtn.classList.add('is-idle');
+      stopBtn.classList.remove('is-active');
+      stopBtn.setAttribute('disabled', 'true');
+      stopBtn.title = 'CIEL AI en espera';
+      if (span) span.textContent = 'EN ESPERA';
+    }
   }
+
+  // No loguear estados en la transcripción — ya se refleja en el orb visual
 }
 
 
@@ -407,19 +521,23 @@ function _cleanTextForSpeech(text) {
   let clean = text
     // Quitar bloques de código
     .replace(/```[\s\S]*?```/g, ' [código omitido] ')
+    // Convertir bullets y listas a pausas naturales en español
+    .replace(/\n\s*[-*•]\s*/g, '. ')
+    .replace(/^[-*•]\s*/gm, '')
     // Quitar markdown bold/italic
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
     .replace(/__(.*?)__/g, '$1')
     // Quitar encabezados markdown
     .replace(/^#+\s/gm, '')
-    // Quitar bullets
-    .replace(/^[-*•]\s/gm, '')
     // Quitar emojis
     .replace(/[\u{1F300}-\u{1FFFF}]/gu, '')
     .replace(/[\u2600-\u27BF]/g, '')
     // Quitar URLs
     .replace(/https?:\/\/\S+/g, '')
+    // Convertir saltos de línea restantes en pausas de punto
+    .replace(/\n+/g, '. ')
+    .replace(/\s*\.\s*\./g, '.')
     // Normalizar espacios
     .replace(/\s+/g, ' ')
     .trim();
@@ -436,11 +554,26 @@ function _cleanTextForSpeech(text) {
 // Exposición global
 // ══════════════════════════════════════════════════════════════
 window.PRQAVoice = {
-  init:          initVoice,
-  speak:         speak,
-  stop:          stopSpeaking,
-  toggleTTS:     toggleTTS,
-  toggleMic:     toggleMic,
-  isTTSEnabled:  isTTSEnabled,
-  setOrbState:   setOrbState,
+  init:               initVoice,
+  speak:              speak,
+  initStreamSpeech:   initStreamSpeech,
+  queueSentence:      queueSentence,
+  finishStreamSpeech: finishStreamSpeech,
+  stop:               stopSpeaking,
+  toggleTTS:          toggleTTS,
+  toggleMic:          toggleMic,
+  toggleListening:    toggleMic,
+  startListening:     toggleMic,
+  abortListening:     abortListening,
+  isTTSEnabled:       isTTSEnabled,
+  setOrbState:        setOrbState,
 };
+
+// Auto-inicialización
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initVoice);
+  } else {
+    initVoice();
+  }
+}

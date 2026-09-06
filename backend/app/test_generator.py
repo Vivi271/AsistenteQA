@@ -31,35 +31,44 @@ TIPOS = ["CORE", "PROV", "VAL", "RNEG"]
 
 SEVERIDADES = ["Bloqueante", "Crítico", "Tolerable", "Interfaz de usuario"]
 
-# ─── Prompt profesional EOPA DTR029C ──────────────────────────────────────────
-GENERATOR_PROMPT = """Eres un QA Engineer senior de Ciel Ingeniería S.A.S. Debes generar casos de prueba EOPA profesionales y detallados para el siguiente requerimiento.
+# ─── Prompt profesional EOPA DTR029C + Estándar ISTQB ────────────────────────
+GENERATOR_PROMPT = """Eres un QA Engineer Senior y especialista ISTQB de Ciel Ingeniería S.A.S.
+Debes generar casos de prueba de alta calidad técnica para la plataforma PRQA (estándar corporativo EOPA DTR029C).
 
-REQUERIMIENTO:
+REQUERIMIENTO A PROBAR:
 {requirement}
 
-CONTEXTO ADICIONAL:
+DOCUMENTOS TÉCNICOS Y REGLAS DE NEGOCIO (CONTEXTO RAG):
 {context}
 
-INSTRUCCIONES ESTRICTAS:
-- Genera exactamente {num_cases} casos de prueba de tipo(s): {test_types}
-- El campo "title" es la DESCRIPCIÓN DE LA ACCIÓN: una oración completa y específica que describe exactamente qué acción ejecuta el tester (incluye datos concretos, campos específicos, pasos de navegación).
-  Ejemplos correctos:
-  • "Ingresar un código de pedido con formato inválido (ej: 'PED#999') en el campo 'Buscar pedido' y presionar el botón Confirmar"
-  • "Enviar una consulta sobre política de devolución con el texto 'Quiero devolver mi producto comprado hace 40 días' y verificar la respuesta del sistema"
-  • "Configurar el parámetro de resolución con valor vacío y guardar el formulario de configuración del módulo {module}"
-  NUNCA uses títulos vagos como "Verificar respuesta" o "Prueba de integración" sin contexto específico.
-- El campo "expected_result" describe el RESULTADO ESPERADO observable: qué muestra exactamente el sistema (mensajes de error/éxito entre comillas, estados, valores concretos).
-  Ejemplos correctos:
-  • "El sistema muestra el mensaje 'Código de pedido inválido, verifique el formato (ej: PED-001)' en rojo debajo del campo."
-  • "El chatbot responde con el estado del pedido: 'Su pedido está En proceso de envío' y proporciona el número de seguimiento."
-  • "El sistema bloquea el guardado y muestra 'El campo Resolución es obligatorio' resaltado en naranja."
+INSTRUCCIONES DE DISEÑO DE PRUEBAS:
+- Genera exactamente {num_cases} caso(s) de prueba de tipo(s): {test_types} para el módulo "{module}".
+- Extrae y aplica fielmente las entidades, campos, reglas de negocio y flujos presentes en el requerimiento y documentos.
+- Para cada caso define obligatoriamente:
+  1. "title": DESCRIPCIÓN DE LA ACCIÓN que ejecuta el tester, redactada como una oración completa que incluye contexto y datos concretos de entrada entre comillas (ej: 'PED#999', 'admin@ciel.com', '12345').
+  2. "test_type": Uno de: {test_types}.
+  3. "technique": Técnica ISTQB aplicada ("Partición de Equivalencia (EP)", "Análisis de Valores Límite (BVA)", "Tabla de Decisión", "Prueba de Flujo de Negocio", "Inyección y Casos de Abuso", "Prueba de Carga/Rendimiento", "Prueba de Compatibilidad").
+  4. "preconditions": Estado previo indispensable del sistema o usuario antes de ejecutar la prueba.
+  5. "steps": Array con 2 a 4 pasos secuenciales numerados (ej: ["1. Ingresar a...", "2. Digitar...", "3. Presionar..."]).
+  6. "expected_result": Resultado observable preciso con mensajes exactos del sistema entre comillas, códigos de estado o cambios visuales esperados.
+  7. "severity": "Bloqueante" | "Crítico" | "Tolerable" | "Interfaz de usuario".
+  8. "category": "CORE" (funcionalidad principal) | "PROV" (proveedores/servicios) | "VAL" (validaciones) | "RNEG" (reglas de negocio/seguridad).
 
-Devuelve ÚNICAMENTE el array JSON sin texto adicional ni bloques de código:
+Devuelve ÚNICAMENTE el array JSON sin texto adicional ni bloques explicativos:
 [
   {{
-    "title": "[Descripción completa y específica de la acción del tester con datos concretos]",
+    "title": "[Acción detallada del tester con datos sintéticos concretos para el módulo {module}]",
     "test_type": "{first_type}",
-    "expected_result": "[Resultado observable específico con mensajes exactos entre comillas y estados del sistema]"
+    "technique": "Partición de Equivalencia (EP)",
+    "preconditions": "[Estado previo del sistema o usuario]",
+    "steps": [
+      "1. Acceder al módulo {module}.",
+      "2. Ingresar los datos de prueba requeridos.",
+      "3. Ejecutar la acción y validar la respuesta del sistema."
+    ],
+    "expected_result": "[Resultado observable con mensajes exactos del sistema entre comillas]",
+    "severity": "Crítico",
+    "category": "CORE"
   }}
 ]"""
 
@@ -70,7 +79,7 @@ class TestCaseGenerator:
 
     def __init__(self, rag: RAGPipeline):
         self.rag = rag
-        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=120.0)
+        self.ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=300.0)
         self._case_counter: dict = {}
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -168,207 +177,169 @@ class TestCaseGenerator:
     # ─────────────────────────────────────────────────────────────────────────
     def _validate_case(self, case: dict, idx: int) -> dict:
         tt = case.get("test_type", "")
+        if tt not in TEST_TYPES:
+            tt = "FUNCIONALES"
+
+        steps_raw = case.get("steps")
+        if isinstance(steps_raw, list):
+            steps = [str(s).strip() for s in steps_raw if str(s).strip()]
+        elif isinstance(steps_raw, str) and steps_raw.strip():
+            steps = [s.strip() for s in re.split(r'[\n\r]+', steps_raw) if s.strip()]
+        else:
+            steps = []
+
+        cat = case.get("category", "")
+        if cat not in TIPOS:
+            cat = "RNEG" if ("NEG" in tt or "SEG" in tt) else ("PROV" if ("INT" in tt or "RES" in tt) else "CORE")
+
+        sev = case.get("severity", "")
+        if sev not in SEVERIDADES:
+            sev = "Bloqueante" if ("SEG" in tt or "ESTRESS" in tt) else ("Crítico" if ("NEG" in tt or "INT" in tt or "CARGA" in tt) else "Tolerable")
+
+        # Asignar técnica ISTQB adecuada si viene vacía
+        tech = case.get("technique") or ""
+        if not tech:
+            if "NEG" in tt:
+                tech = "Análisis de Valores Límite (BVA)"
+            elif "SEG" in tt:
+                tech = "Inyección y Casos de Abuso"
+            elif "INT" in tt:
+                tech = "Prueba de Integración de Endpoints"
+            elif "NOF" in tt or "COMPAT" in tt:
+                tech = "Prueba de Usabilidad y Matriz Multiplataforma"
+            elif "CARGA" in tt or "ESTRESS" in tt:
+                tech = "Prueba de Sobrecarga y Rendimiento"
+            elif "RESIL" in tt:
+                tech = "Prueba de Tolerancia a Fallos"
+            else:
+                tech = "Partición de Equivalencia (EP)"
+
+        pre = case.get("preconditions") or "El sistema se encuentra operativo y el usuario cuenta con los permisos requeridos."
+        if not steps:
+            steps = [
+                f"1. Acceder al módulo correspondiente y verificar el estado inicial.",
+                f"2. Ejecutar la acción de prueba con los datos especificados.",
+                f"3. Confirmar la operación y verificar la respuesta esperada en pantalla."
+            ]
+
+        exp = case.get("expected_result") or "El sistema procesa la operación según la especificación sin generar errores."
+
         return {
             "title": case.get("title") or f"Caso de prueba {idx+1}",
-            "test_type": tt if tt in TEST_TYPES else "FUNCIONALES",
-            "category": case.get("category") if case.get("category") in TIPOS else "CORE",
-            "severity": case.get("severity") or "Tolerable",
-            "preconditions": case.get("preconditions") or "",
-            "steps": "[]",
-            "expected_result": case.get("expected_result") or "El sistema responde correctamente.",
+            "test_type": tt,
+            "category": cat,
+            "severity": sev,
+            "technique": tech,
+            "preconditions": pre,
+            "steps": steps,
+            "expected_result": exp,
             "acceptance_criteria": case.get("acceptance_criteria") or "",
-            "technique": "",
         }
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Domain-aware smart fallback (NO generic boilerplate)
     # ─────────────────────────────────────────────────────────────────────────
-    def _smart_fallback(
+    # Motor Semántico de Respaldo EOPA (Garantía de Continuidad y Resiliencia)
+    # ─────────────────────────────────────────────────────────────────────────
+    def _generate_fallback_cases(
         self,
-        req_text: str,
+        req_clean: str,
         project_name: str,
         module: str,
-        test_types: List[str],
-        count: int,
+        batch_types: List[str],
+        needed: int,
+        context: str = ""
     ) -> List[dict]:
-        """
-        Motor de respaldo semántico: extrae contexto real del requerimiento
-        y genera casos de prueba EOPA profesionales con descripciones detalladas.
-        """
-        # ── 1. Extraer oraciones del requerimiento ─────────────────────────────
-        sents = [s.strip() for s in re.split(r'[.\n;]', req_text) if len(s.strip()) > 30]
-        if not sents:
-            sents = [req_text[:300]]
-
-        # ── 2. Extraer entidades clave del dominio ─────────────────────────────
-        nouns = re.findall(
-            r'\b([A-ZÁÉÍÓÚ][a-záéíóúñ]{3,}|PDF|DOCX|API|URL|token|contraseña|'
-            r'usuario|documento|contrato|formulario|reporte|factura|registro|'
-            r'sesión|módulo|sistema|servicio|base de datos|código|campo|botón|'
-            r'archivo|parámetro|configuración|cliente|pedido|solicitud)\b',
-            req_text
-        )
-        nouns = list(dict.fromkeys(nouns))[:6] or [module, "sistema"]
-
-        verbs_found = re.findall(
-            r'\b(cargar|subir|descargar|registrar|consultar|buscar|actualizar|'
-            r'eliminar|validar|autenticar|generar|enviar|notificar|exportar|'
-            r'importar|procesar|calcular|firmar|aprobar|rechazar|listar|crear|'
-            r'ingresar|configurar|guardar|verificar|ejecutar)\b',
-            req_text.lower()
-        )
-        verbs_found = list(dict.fromkeys(verbs_found))[:5] or ["procesar"]
-
-        # Datos de prueba concretos según el dominio detectado
-        sample_data = {
-            "código": "'PED#999'", "usuario": "'usuario_test@ciel.com'",
-            "contraseña": "'Pass#1234'", "documento": "'Contrato_prueba.pdf'",
-            "fecha": "'2025-02-30'", "formulario": "con todos los campos en blanco",
-            "registro": "ID: 00000 (inexistente)", "token": "'TOKEN-INVALIDO-XYZ'",
-        }
-
+        """Genera casos de prueba EOPA técnicos ISTQB cuando el LLM está sobrecargado o agota tiempo."""
         cases = []
-        for i in range(count):
-            t_type = test_types[i % len(test_types)]
-            sent   = sents[i % len(sents)]
-            noun   = nouns[i % len(nouns)]
-            verb   = verbs_found[i % len(verbs_found)]
-            noun_l = noun.lower()
-            sample = sample_data.get(noun_l, f"datos de prueba para {noun_l}")
+        mod = module if module and module.lower() != 'general' else 'Módulo'
+        terms = re.findall(r'\b[A-Za-záéíóúÁÉÍÓÚñÑ]{4,}\b', req_clean)
+        domain_entity = terms[0].capitalize() if terms else 'Operación'
 
-            # ── Construcción de descripción detallada según tipo ───────────────
-            if t_type == "FUNCIONALES":
-                title = (
-                    f"{verb.capitalize()} el/la {noun_l} en el módulo '{module}' "
-                    f"con datos válidos y verificar que el sistema procesa correctamente "
-                    f"la operación según el requerimiento: «{sent[:80].rstrip('.')}»"
-                )
-                expected = (
-                    f"El sistema confirma la operación con el mensaje "
-                    f"'Operación completada exitosamente' y el registro de {noun_l} "
-                    f"queda guardado y visible en la lista principal. "
-                    f"No se presentan errores. Tiempo de respuesta ≤ 3 s."
-                )
-                cat, sev = "CORE", "Crítico"
-
-            elif t_type == "CASOS NEGATIVOS":
-                title = (
-                    f"Intentar {verb} el/la {noun_l} con el valor inválido {sample} "
-                    f"en el campo correspondiente del módulo '{module}' y confirmar la acción"
-                )
-                expected = (
-                    f"El sistema bloquea la operación y muestra el mensaje de validación "
-                    f"'El formato de {noun_l} no es válido. Verifique los datos ingresados.' "
-                    f"resaltado en rojo. No se persiste ningún dato incorrecto en la base de datos."
-                )
-                cat, sev = "RNEG", "Crítico"
-
-            elif t_type == "SEGURIDAD":
-                title = (
-                    f"Intentar {verb} el/la {noun_l} inyectando código malicioso "
-                    f"(ej: <script>alert('XSS')</script> y ' OR '1'='1) en el campo de {noun_l} "
-                    f"del módulo '{module}' y observar la respuesta del sistema"
-                )
-                expected = (
-                    f"El sistema sanitiza la entrada y muestra el mensaje "
-                    f"'Entrada no válida detectada. La operación ha sido bloqueada.' "
-                    f"Devuelve HTTP 403. El intento queda registrado en el log de auditoría "
-                    f"con timestamp, usuario y dirección IP."
-                )
-                cat, sev = "RNEG", "Bloqueante"
-
-            elif t_type == "INTEGRACION":
-                title = (
-                    f"Ejecutar la integración del endpoint de {noun_l} en '{module}' "
-                    f"enviando una petición HTTP con payload válido "
-                    f"({verb}: {sent[:60].rstrip('.')}) y verificar la respuesta del servicio"
-                )
-                expected = (
-                    f"El endpoint responde HTTP 200 OK en menos de 1.5 s. "
-                    f"El JSON de respuesta contiene los campos requeridos: 'status: success', "
-                    f"'data', 'message'. No se presentan errores 4xx ni 5xx en el log del servidor."
-                )
-                cat, sev = "PROV", "Crítico"
-
-            elif t_type == "NO FUNCIONALES":
-                title = (
-                    f"Abrir el módulo '{module}' en Chrome, Firefox y Edge y ejecutar "
-                    f"la función de {verb} {noun_l} en resolución 1366x768 y en dispositivo "
-                    f"móvil (iOS/Android) verificando usabilidad y accesibilidad"
-                )
-                expected = (
-                    f"La interfaz de '{module}' se renderiza sin desalineación en los 3 navegadores. "
-                    f"Los botones y campos son accesibles (WCAG 2.1 AA). "
-                    f"Los mensajes de la función {verb} son legibles y con contraste adecuado. "
-                    f"La pantalla es responsiva en móvil."
-                )
-                cat, sev = "CORE", "Tolerable"
-
-            elif t_type in ("CARGA", "ESTRESS"):
-                usuarios = "500" if t_type == "ESTRESS" else "100"
-                title = (
-                    f"Simular {usuarios} usuarios concurrentes ejecutando la acción de "
-                    f"{verb} {noun_l} en el módulo '{module}' durante 5 minutos continuos "
-                    f"usando JMeter y registrar métricas de rendimiento"
-                )
-                expected = (
-                    f"Tiempo de respuesta promedio ≤ 2 s (P95 ≤ 3 s). Tasa de error < 1%. "
-                    f"La CPU del servidor no supera el 85%. "
-                    f"{'El sistema se degrada de forma controlada y se recupera en menos de 60 s al reducir la carga.' if t_type == 'ESTRESS' else 'El sistema mantiene estabilidad sin errores HTTP 500 durante toda la prueba.'}"
-                )
-                cat, sev = "CORE", "Bloqueante" if t_type == "ESTRESS" else "Crítico"
-
-            elif t_type == "COMPATIBILIDAD":
-                title = (
-                    f"Acceder al módulo '{module}' desde iOS 16+, Android 13+ y Windows 11 "
-                    f"y ejecutar el flujo completo de {verb} {noun_l} en cada plataforma, "
-                    f"verificando consistencia visual y funcional"
-                )
-                expected = (
-                    f"El módulo '{module}' ejecuta la acción de {verb} {noun_l} correctamente "
-                    f"en todas las plataformas. La interfaz es responsiva, los formularios "
-                    f"funcionan en pantalla táctil y los resultados son idénticos en cada dispositivo."
-                )
-                cat, sev = "CORE", "Tolerable"
-
-            elif t_type == "RESILIENCIA":
-                title = (
-                    f"Simular una caída del servicio de base de datos mientras se ejecuta "
-                    f"la acción de {verb} {noun_l} en el módulo '{module}', luego restaurar "
-                    f"la conexión y reintentar la operación"
-                )
-                expected = (
-                    f"Durante la caída: el sistema muestra 'Servicio no disponible temporalmente. "
-                    f"Intente de nuevo en unos momentos.' sin perder los datos ingresados. "
-                    f"Al restaurar: la operación de {verb} {noun_l} se completa exitosamente "
-                    f"sin necesidad de reingresar información."
-                )
-                cat, sev = "PROV", "Crítico"
-
+        for i in range(needed):
+            tt = batch_types[i % len(batch_types)].upper()
+            if 'NEG' in tt:
+                cases.append({
+                    'title': f'Verificar rechazo y control de excepciones con entradas inválidas o fuera de límite en {mod}',
+                    'test_type': 'CASOS NEGATIVOS',
+                    'technique': 'Análisis de Valores Límite (BVA)',
+                    'preconditions': f'El usuario tiene sesión activa y se encuentra en el formulario o servicio {mod}.',
+                    'steps': [
+                        f'1. Acceder a la interfaz de {mod}.',
+                        f'2. Ingresar datos vacíos, nulos o con caracteres especiales no permitidos en los campos de entrada.',
+                        f'3. Confirmar la operación presionando el botón de envío o confirmación.',
+                        f'4. Verificar el bloqueo y la notificación desplegada en pantalla.'
+                    ],
+                    'expected_result': 'El sistema no procesa la transacción, previene la persistencia errónea y muestra el mensaje de error: "Datos requeridos incompletos o en formato inválido".',
+                    'severity': 'Crítico',
+                    'category': 'RNEG'
+                })
+            elif 'SEG' in tt or 'SEC' in tt:
+                cases.append({
+                    'title': f'Validar mitigación de inyecciones y control estricto de acceso no autenticado en {mod}',
+                    'test_type': 'SEGURIDAD',
+                    'technique': 'Inyección y Casos de Abuso',
+                    'preconditions': f'Servicio de {mod} activo y políticas de seguridad configuradas en el entorno.',
+                    'steps': [
+                        f'1. Acceder al punto de entrada del módulo {mod}.',
+                        f'2. Enviar parámetros con payloads de prueba de inyección (ej: "<script>alert(1)</script>" o inyección SQL).',
+                        f'3. Intentar acceder a operaciones restringidas sin las cabeceras de autorización requeridas.',
+                        f'4. Evaluar la respuesta del backend y la renderización en el cliente.'
+                    ],
+                    'expected_result': 'El sistema sanitiza las entradas, deniega el acceso no autorizado con código HTTP 401/403 o alerta: "Acceso denegado", sin filtrar datos confidenciales en trazas.',
+                    'severity': 'Bloqueante',
+                    'category': 'RNEG'
+                })
+            elif 'INT' in tt:
+                cases.append({
+                    'title': f'Validar la integración y sincronización de datos de {mod} con servicios y base de datos',
+                    'test_type': 'INTEGRACION',
+                    'technique': 'Prueba de Integración de Endpoints',
+                    'preconditions': f'Los microservicios y fuentes de datos de {project_name} están operativos.',
+                    'steps': [
+                        f'1. Iniciar un flujo transaccional completo en {mod}.',
+                        f'2. Transmitir el payload al endpoint correspondiente.',
+                        f'3. Validar la respuesta JSON y el esquema de datos retornado.',
+                        f'4. Simular un retardo de red o desconexión temporal y validar la gestión del reintento.'
+                    ],
+                    'expected_result': 'Los datos se sincronizan bajo el contrato de integración esperado en menos de 1.5s; ante fallos temporales se activa el circuito de reintento controlado.',
+                    'severity': 'Crítico',
+                    'category': 'PROV'
+                })
+            elif 'CARGA' in tt or 'ESTRESS' in tt or 'REND' in tt:
+                cases.append({
+                    'title': f'Evaluar la estabilidad y tiempos de respuesta de {mod} bajo concurrencia',
+                    'test_type': 'CARGA' if 'CARGA' in tt else 'ESTRESS',
+                    'technique': 'Prueba de Sobrecarga y Rendimiento',
+                    'preconditions': 'Entorno de pruebas con monitoreo de métricas de CPU y memoria activo.',
+                    'steps': [
+                        f'1. Ejecutar peticiones concurrentes simultáneas sobre las operaciones clave de {mod}.',
+                        f'2. Monitorear los tiempos de latencia y porcentaje de errores en la respuesta.',
+                        f'3. Verificar la liberación adecuada de memoria al finalizar el lote de solicitudes.'
+                    ],
+                    'expected_result': 'El sistema mantiene un tiempo de respuesta promedio inferior a 2.0s y una tasa de éxito superior al 99.5% sin pérdida de estabilidad.',
+                    'severity': 'Crítico',
+                    'category': 'CORE'
+                })
             else:
-                title = (
-                    f"{verb.capitalize()} {noun_l} en el módulo '{module}': "
-                    f"{sent[:100].rstrip('.')}"
-                )
-                expected = (
-                    f"El sistema procesa correctamente la operación de {verb} {noun_l} "
-                    f"mostrando confirmación visual y actualizando el estado en la interfaz."
-                )
-                cat, sev = "CORE", "Tolerable"
-
-            cases.append({
-                "title": title,
-                "test_type": t_type,
-                "category": cat,
-                "severity": sev,
-                "expected_result": expected,
-            })
-
+                cases.append({
+                    'title': f'Validar el flujo principal y persistencia exitosa en {mod} para {domain_entity}',
+                    'test_type': 'FUNCIONALES',
+                    'technique': 'Partición de Equivalencia (EP)',
+                    'preconditions': f'Usuario habilitado con permisos en el proyecto {project_name}.',
+                    'steps': [
+                        f'1. Navegar al módulo {mod}.',
+                        f'2. Ingresar la información requerida con valores válidos y acordes a la especificación.',
+                        f'3. Presionar el botón de confirmación para procesar la acción.',
+                        f'4. Verificar el registro persistido y la confirmación en pantalla.'
+                    ],
+                    'expected_result': 'La operación concluye exitosamente, los datos se almacenan en el sistema y se muestra: "Operación completada con éxito".',
+                    'severity': 'Crítico',
+                    'category': 'CORE'
+                })
         return cases
 
-
     # ─────────────────────────────────────────────────────────────────────────
-    # Main generator (LLM + smart fallback)
+    # Generador Principal de Casos con LLM Local (Ollama)
     # ─────────────────────────────────────────────────────────────────────────
     async def generate(
         self,
@@ -377,41 +348,51 @@ class TestCaseGenerator:
         module: str = "General",
         test_types: List[str] = None,
         num_cases: int = 10,
+        doc_names: List[str] = None,
     ) -> List[dict]:
         """
-        Genera casos de prueba EOPA a partir del requerimiento.
-        Estrategia:
-          1. Llamada al LLM local en lotes pequeños (3 casos c/u).
-          2. Si el LLM falla o agota el tiempo, completa con motor semántico de dominio.
+        Genera casos de prueba EOPA a partir del requerimiento y contexto documental.
+        Estrategia resiliente:
+          1. Llamada al LLM local con timeout optimizado y formato JSON estricto.
+          2. Si el LLM demora o agota tiempo, completa instantáneamente con motor semántico EOPA.
         """
         if not test_types:
             test_types = ["FUNCIONALES", "CASOS NEGATIVOS", "SEGURIDAD"]
 
-        # Recuperar contexto del RAG (limitado para no saturar el prompt)
+        # Recuperar contexto del RAG filtrando por proyecto y documentos específicos
         context = ""
         try:
-            context, _ = await asyncio.wait_for(self.rag.retrieve(requirement_text[:400], n_results=2), timeout=8.0)
-            context = context[:400] if context else ""
-        except Exception:
+            context, _ = await asyncio.wait_for(
+                self.rag.retrieve(
+                    query=(requirement_text[:500] if requirement_text else module),
+                    n_results=3,
+                    project_name=(project_name if project_name != "Proyecto" else None),
+                    doc_names=doc_names,
+                    max_distance=0.65
+                ),
+                timeout=8.0
+            )
+            context = context[:1200] if context else ""
+        except Exception as ex:
+            print(f"Aviso al recuperar contexto RAG para generador: {ex}")
             context = ""
 
-        req_clean = requirement_text[:800].strip()
+        req_clean = requirement_text[:1000].strip()
         all_raw: List[dict] = []
         remaining = num_cases
         type_idx = 0
-        BATCH = 5  # Procesar en lotes de 5 para reducir llamadas
+        BATCH = 3
 
         while remaining > 0 and len(all_raw) < num_cases:
             batch_count = min(remaining, BATCH)
-            # Distribuir tipos de prueba uniformemente entre lotes
             batch_types = list(dict.fromkeys(
                 test_types[(type_idx + j) % len(test_types)] for j in range(batch_count)
             ))
             type_idx += batch_count
 
             prompt = GENERATOR_PROMPT.format(
-                requirement=req_clean,
-                context=context or "Sin contexto adicional.",
+                requirement=req_clean or f"Operaciones y lógica general del módulo {module}.",
+                context=context or "Sin contexto adicional de documentos.",
                 num_cases=batch_count,
                 test_types=", ".join(batch_types),
                 first_type=batch_types[0],
@@ -425,31 +406,48 @@ class TestCaseGenerator:
                         lambda p=prompt: self.ollama_client.chat(
                             model=LLM_MODEL,
                             messages=[{"role": "user", "content": p}],
-                            options={"temperature": 0.2, "num_predict": 450, "stop": ["```\n\n", "\n\n\n"]},
+                            format="json",
+                            keep_alive="24h",
+                            options={"temperature": 0.2, "num_predict": 600, "stop": ["```\n\n", "\n\n\n"]},
                         )
                     ),
-                    timeout=35.0
+                    timeout=90.0
                 )
                 raw_text = resp["message"]["content"]
                 parsed = self._extract_json_array(raw_text)
                 batch = parsed if isinstance(parsed, list) else [parsed]
-                # Filtrar elementos que no sean dicts
                 batch = [c for c in batch if isinstance(c, dict)]
                 if batch:
                     all_raw.extend(batch)
                     remaining -= len(batch)
                 else:
-                    # LLM respondió pero JSON vacío: complementar con smart fallback
-                    fb = self._smart_fallback(requirement_text, project_name, module, batch_types, batch_count)
-                    all_raw.extend(fb)
-                    remaining -= batch_count
+                    raise ValueError("Estructura JSON vacía o no válida")
             except Exception as ex:
-                print(f"⚠️ LLM batch failed (types={batch_types}): {ex} — usando motor semántico de dominio.")
-                fb = self._smart_fallback(requirement_text, project_name, module, batch_types, batch_count)
-                all_raw.extend(fb)
-                remaining -= batch_count
+                print(f"Aviso en inferencia LLM ({ex}). Utilizando motor semántico de respaldo EOPA...")
+                fallback = self._generate_fallback_cases(
+                    req_clean=req_clean,
+                    project_name=project_name,
+                    module=module,
+                    batch_types=batch_types,
+                    needed=batch_count,
+                    context=context
+                )
+                all_raw.extend(fallback)
+                remaining -= len(fallback)
 
-        # Construir casos finales con IDs profesionales
+        # Garantizar cuota solicitada
+        if len(all_raw) < num_cases:
+            diff = num_cases - len(all_raw)
+            all_raw.extend(self._generate_fallback_cases(
+                req_clean=req_clean,
+                project_name=project_name,
+                module=module,
+                batch_types=test_types,
+                needed=diff,
+                context=context
+            ))
+
+        # Construir casos finales con IDs profesionales EOPA
         fixed: List[dict] = []
         for i, raw in enumerate(all_raw[:num_cases]):
             if not isinstance(raw, dict):

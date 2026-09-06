@@ -117,7 +117,7 @@ def export_to_eopa_excel(test_cases, output_path: str, project_name: str = "PRQA
             4: tc.title,                        # D: Descripción de la Acción (Combinada D-H)
             9: tc.expected_result,              # I: Resultado esperado (Combinada I-L)
             13: result_val,                     # M: Resultado (Combinada M-N)
-            15: tc.notes or "",                 # O: Observaciones (Combinada O-P)
+            15: tc.notes or (f"Técnica: {tc.technique} | Precondición: {tc.preconditions}" if (getattr(tc, "technique", None) or getattr(tc, "preconditions", None)) else ""), # O: Observaciones (Combinada O-P)
         }
 
         # ── Columnas de incidencias (Q-V): se rellenan cuando el resultado es NO CUMPLE

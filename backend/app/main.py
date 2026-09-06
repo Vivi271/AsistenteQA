@@ -31,6 +31,7 @@ import aiofiles
 
 from database import engine, Base, SessionLocal
 from models import TestCase, TestExecution, Document, TimerSession
+from sqlalchemy import String, func
 from rag_pipeline import RAGPipeline
 from test_generator import TestCaseGenerator
 
@@ -80,11 +81,12 @@ async def startup_event():
         db.commit()
         print("Migraciones de project_name a 'Proyectos' completadas exitosamente en SQLite.")
 
-        # Migrar columnas de tiempo en test_executions si no existen
+        # Migrar columnas de tiempo en test_executions y export_file en test_cases
         for col_def in [
             "ALTER TABLE test_executions ADD COLUMN execution_time_seconds REAL",
             "ALTER TABLE test_executions ADD COLUMN started_at DATETIME",
             "ALTER TABLE test_executions ADD COLUMN paused_seconds REAL DEFAULT 0.0",
+            "ALTER TABLE test_cases ADD COLUMN export_file VARCHAR",
         ]:
             try:
                 db.execute(text(col_def))
@@ -142,6 +144,27 @@ async def startup_event():
         rag = RAGPipeline()
         generator = TestCaseGenerator(rag)
         print("Pipeline RAG inicializado correctamente.")
+
+        # ── Warmup de Ollama: cargar modelo en memoria al inicio ──────────────
+        async def _warmup_ollama():
+            import ollama, os
+            OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+            LLM_MODEL = os.getenv("LLM_MODEL", "llama3.2:3b")
+            try:
+                print(f"[Warmup] Cargando {LLM_MODEL} en memoria (keep_alive=24h)...")
+                client = ollama.Client(host=OLLAMA_HOST, timeout=300.0)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: client.chat(
+                    model=LLM_MODEL,
+                    messages=[{"role": "user", "content": "hola"}],
+                    keep_alive="24h",
+                    options={"num_predict": 5}
+                ))
+                print(f"[Warmup] Modelo {LLM_MODEL} cargado y listo.")
+            except Exception as ex:
+                print(f"[Warmup] Aviso (no crítico): {ex}")
+
+        asyncio.create_task(_warmup_ollama())
     except Exception as e:
         print(f"⚠️  Error al inicializar pipeline: {e}")
         print(f"Modo degradado: {e}. Verifica que Ollama este corriendo.")
@@ -569,21 +592,38 @@ class GenerateTestCasesRequest(BaseModel):
     module: str = "General"
     test_types: List[str] = ["FUNCIONALES", "NO FUNCIONALES"]
     num_cases: int = 10
+    selected_doc_ids: Optional[List[str]] = None
+    doc_names: Optional[List[str]] = None
 
 
 @app.post("/api/test-cases/generate")
 async def generate_test_cases(req: GenerateTestCasesRequest):
-    """Genera casos de prueba automáticamente a partir de un requerimiento."""
+    """Genera casos de prueba automáticamente a partir de un requerimiento y contexto documental."""
     if not generator:
         raise HTTPException(503, "Generador no disponible.")
 
     try:
+        # Resolver nombres de documentos seleccionados para alimentar el contexto RAG
+        target_doc_names = list(req.doc_names or [])
+        if req.selected_doc_ids and len(req.selected_doc_ids) > 0:
+            db_docs = SessionLocal()
+            try:
+                matched_docs = db_docs.query(Document.filename).filter(Document.id.in_(req.selected_doc_ids)).all()
+                for doc_row in matched_docs:
+                    if doc_row[0] and doc_row[0] not in target_doc_names:
+                        target_doc_names.append(doc_row[0])
+            except Exception as e:
+                print(f"Aviso al consultar documentos seleccionados: {e}")
+            finally:
+                db_docs.close()
+
         test_cases = await generator.generate(
             requirement_text=req.requirement_text,
             project_name=req.project_name,
             module=req.module,
             test_types=req.test_types,
             num_cases=req.num_cases,
+            doc_names=target_doc_names if target_doc_names else None,
         )
 
         if not test_cases or len(test_cases) == 0:
@@ -595,6 +635,9 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
         try:
             saved_cases = []
             for i, tc in enumerate(test_cases):
+                steps_data = tc.get("steps", [])
+                steps_json = json.dumps(steps_data, ensure_ascii=False) if isinstance(steps_data, list) else str(steps_data)
+
                 db_case = TestCase(
                     id=str(uuid.uuid4()),
                     case_id=tc.get("case_id") or tc.get("id", f"PRQA-{i+1:03d}"),
@@ -602,9 +645,9 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
                     module=req.module,
                     title=tc["title"],
                     test_type=tc["test_type"],
-                    technique=tc["technique"],
+                    technique=tc.get("technique", ""),
                     preconditions=tc.get("preconditions", ""),
-                    steps=json.dumps(tc.get("steps", []), ensure_ascii=False),
+                    steps=steps_json,
                     expected_result=tc.get("expected_result", ""),
                     severity=tc.get("severity", "Tolerable"),
                     category=tc.get("category", ""),
@@ -613,10 +656,14 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
                 )
                 db.add(db_case)
                 saved_db_cases.append(db_case)
-                saved_cases.append({**tc, "db_id": db_case.id})
+                saved_cases.append({
+                    **tc,
+                    "db_id": db_case.id,
+                    "case_id": db_case.case_id,
+                    "project_name": req.project_name,
+                    "module": req.module,
+                })
 
-            db.commit()
-            
             # Generar y guardar el Excel permanente correspondiente a esta generación
             from excel_exporter import export_to_eopa_excel
             export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / req.project_name / "generados"
@@ -625,6 +672,14 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
             timestamp = now_co().strftime("%Y-%m-%d_%H-%M-%S")
             filename = f"Casos_{req.module.replace(' ', '_')}_{timestamp}.xlsx"
             filepath = export_dir / filename
+
+            # Vincular cada caso guardado con este archivo Excel específico
+            for db_case in saved_db_cases:
+                db_case.export_file = filename
+            db.commit()
+
+            for sc in saved_cases:
+                sc["export_file"] = filename
             
             export_to_eopa_excel(saved_db_cases, str(filepath), req.project_name)
 
@@ -725,7 +780,7 @@ async def download_generated_excel(project_name: str, filename: str):
 @app.delete("/api/test-cases/exports/delete")
 async def delete_generated_excel(project_name: str, filename: str):
     """Elimina un archivo Excel generado del historial del proyecto
-    y borra los casos de prueba correspondientes de la base de datos."""
+    y borra en cascada ÚNICAMENTE los casos de prueba asociados a este archivo específico."""
     safe_name = Path(filename).name
     export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name / "generados"
     file_path = export_dir / safe_name
@@ -736,50 +791,43 @@ async def delete_generated_excel(project_name: str, filename: str):
         # 1. Borrar el archivo físico
         file_path.unlink()
 
-        # 2. Extraer el módulo del nombre para borrar los casos de BD
-        # Formato: Casos_<Modulo>_<YYYY-MM-DD>_<HH-MM>_<SS>.xlsx
-        stem = safe_name.replace(".xlsx", "")
+        # 2. Borrar casos en la base de datos EXCLUSIVAMENTE vinculados a este archivo
         deleted_db = 0
+        db = SessionLocal()
         try:
-            parts = stem.split("_")
-            if len(parts) >= 4 and parts[0] == "Casos":
-                # El timestamp ocupa las últimas 2 partes (YYYY-MM-DD y HH-MM-SS)
-                module_parts = parts[1:-2]
-                module_name_underscored = "_".join(module_parts)
-                module_name_spaced = " ".join(module_parts)
+            # Primero intentar por la columna export_file exacta
+            target_cases = db.query(TestCase).filter(
+                TestCase.project_name == project_name,
+                TestCase.export_file == safe_name
+            ).all()
 
-                db = SessionLocal()
-                try:
-                    # Intento 1: coincidencia exacta con guiones bajos
-                    result = db.query(TestCase).filter(
+            # Si son casos legados sin export_file, filtrar por minuto exacto para NO afectar otras matrices del mismo día
+            if not target_cases:
+                stem = safe_name.replace(".xlsx", "")
+                parts = stem.split("_")
+                if len(parts) >= 4 and parts[0] == "Casos":
+                    module_parts = parts[1:-2]
+                    module_name = " ".join(module_parts)
+                    date_part = parts[-2]                  # YYYY-MM-DD
+                    time_part = parts[-1].replace("-", ":") # HH:MM:SS
+                    
+                    from sqlalchemy import func
+                    minute_prefix = f"{date_part} {time_part[:5]}" # Filtra hasta el minuto exacto
+                    target_cases = db.query(TestCase).filter(
                         TestCase.project_name == project_name,
-                        TestCase.module == module_name_underscored
-                    ).delete(synchronize_session=False)
-                    db.commit()
-                    deleted_db += result
+                        (TestCase.module == module_name) | (TestCase.module == "_".join(module_parts)),
+                        func.cast(TestCase.created_at, String).like(f"{minute_prefix}%")
+                    ).all()
 
-                    # Intento 2: coincidencia con espacios
-                    if deleted_db == 0:
-                        result2 = db.query(TestCase).filter(
-                            TestCase.project_name == project_name,
-                            TestCase.module == module_name_spaced
-                        ).delete(synchronize_session=False)
-                        db.commit()
-                        deleted_db += result2
-
-                    # Intento 3: coincidencia case-insensitive con LIKE
-                    if deleted_db == 0:
-                        from sqlalchemy import func
-                        result3 = db.query(TestCase).filter(
-                            TestCase.project_name == project_name,
-                            func.lower(func.replace(TestCase.module, ' ', '_')) == module_name_underscored.lower()
-                        ).delete(synchronize_session=False)
-                        db.commit()
-                        deleted_db += result3
-                finally:
-                    db.close()
-        except Exception as db_err:
-            print(f"[WARN] No se pudieron eliminar casos de BD: {db_err}")
+            tc_ids = [c.id for c in target_cases]
+            if tc_ids:
+                # Borrado en cascada estricto
+                db.query(TestExecution).filter(TestExecution.test_case_id.in_(tc_ids)).delete(synchronize_session=False)
+                db.query(TimerSession).filter(TimerSession.test_case_id.in_(tc_ids)).delete(synchronize_session=False)
+                deleted_db = db.query(TestCase).filter(TestCase.id.in_(tc_ids)).delete(synchronize_session=False)
+                db.commit()
+        finally:
+            db.close()
 
         return {
             "deleted": True,
@@ -790,11 +838,66 @@ async def delete_generated_excel(project_name: str, filename: str):
         raise HTTPException(500, f"No se pudo eliminar el archivo: {ex}")
 
 
+@app.delete("/api/test-cases/matrix/delete")
+async def delete_matrix_group(project_name: str, module: str, date_prefix: Optional[str] = None, created_at: Optional[str] = None):
+    """Elimina una matriz de casos de prueba completa desde la vista de ejecución,
+    borrando en cascada ejecuciones, sesiones de cronómetro, casos y el archivo Excel asociado."""
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func
+        query = db.query(TestCase).filter(
+            TestCase.project_name == project_name,
+            TestCase.module == module
+        )
+        time_ref = created_at or date_prefix
+        if time_ref and len(time_ref.strip()) >= 16:
+            # Filtrar por timestamp hasta el minuto exacto (YYYY-MM-DD HH:MM)
+            clean_time = time_ref.strip().replace("T", " ")[:16]
+            query = query.filter(func.cast(TestCase.created_at, String).like(f"{clean_time}%"))
+        elif time_ref and len(time_ref.strip()) >= 10:
+            clean_date = time_ref.strip().replace("T", " ")[:10]
+            query = query.filter(func.substr(func.cast(TestCase.created_at, String), 1, 10) == clean_date)
+
+        target_cases = query.all()
+        tc_ids = [c.id for c in target_cases]
+        export_files_to_delete = set([c.export_file for c in target_cases if getattr(c, "export_file", None)])
+        deleted_count = 0
+
+        if tc_ids:
+            # 1. Borrar resultados de ejecución
+            db.query(TestExecution).filter(TestExecution.test_case_id.in_(tc_ids)).delete(synchronize_session=False)
+            # 2. Borrar sesiones de temporizador
+            db.query(TimerSession).filter(TimerSession.test_case_id.in_(tc_ids)).delete(synchronize_session=False)
+            # 3. Borrar los casos de prueba
+            deleted_count = db.query(TestCase).filter(TestCase.id.in_(tc_ids)).delete(synchronize_session=False)
+            db.commit()
+
+        # 4. Eliminar exclusivamente el archivo Excel asociado
+        export_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / project_name / "generados"
+        if export_dir.exists():
+            for ef in export_files_to_delete:
+                p = export_dir / ef
+                if p.exists() and p.is_file():
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+
+        return {
+            "deleted": True,
+            "project_name": project_name,
+            "module": module,
+            "db_cases_deleted": deleted_count
+        }
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(500, f"Error al eliminar matriz de pruebas: {ex}")
+    finally:
+        db.close()
 
 
 @app.get("/api/test-cases")
 async def list_test_cases(project_name: Optional[str] = None, status: Optional[str] = None):
-
     """Lista todos los casos de prueba almacenados."""
     db = SessionLocal()
     try:
@@ -824,6 +927,7 @@ async def list_test_cases(project_name: Optional[str] = None, status: Optional[s
                 "status": c.status,
                 "result": c.result,
                 "notes": c.notes,
+                "export_file": getattr(c, "export_file", None),
                 "created_at": c.created_at.isoformat() + "Z",
                 "executed_at": (c.executed_at.isoformat() + "Z") if c.executed_at else None,
             }
@@ -835,13 +939,17 @@ async def list_test_cases(project_name: Optional[str] = None, status: Optional[s
 
 @app.delete("/api/test-cases/all")
 async def delete_all_test_cases(project_name: str):
-    """Elimina todos los casos de prueba de un proyecto (para sincronizar la vista de ejecución)."""
+    """Elimina en cascada todos los casos de prueba de un proyecto."""
     db = SessionLocal()
     try:
-        deleted = db.query(TestCase).filter(
-            TestCase.project_name == project_name
-        ).delete(synchronize_session=False)
-        db.commit()
+        cases = db.query(TestCase.id).filter(TestCase.project_name == project_name).all()
+        tc_ids = [c[0] for c in cases]
+        deleted = 0
+        if tc_ids:
+            db.query(TestExecution).filter(TestExecution.test_case_id.in_(tc_ids)).delete(synchronize_session=False)
+            db.query(TimerSession).filter(TimerSession.test_case_id.in_(tc_ids)).delete(synchronize_session=False)
+            deleted = db.query(TestCase).filter(TestCase.id.in_(tc_ids)).delete(synchronize_session=False)
+            db.commit()
         return {"deleted": deleted, "project_name": project_name}
     finally:
         db.close()

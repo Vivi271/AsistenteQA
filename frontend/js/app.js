@@ -306,16 +306,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.stopAI = stopAI;
   window.appendJarvisLog = appendJarvisLog;
   window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
+  window.finalizeUserInterim = finalizeUserInterim;
+  window.clearJarvisLog = clearJarvisLog;
   window.toggleTranscriptDrawer = toggleTranscriptDrawer;
   window.toggleTranscriptPopup = toggleTranscriptPopup;
+  window.initTranscriptResize = initTranscriptResize;
+  window.toggleMaximizeTranscript = toggleMaximizeTranscript;
   window.showToast = showToast;
   window.toggleListening = toggleListening;
   window.toggleTTS = toggleTTS;
   window.toggleTextInput = toggleTextInput;
   window.sendTextToAI = sendTextToAI;
 
-  // Registrar mensaje inicial dinámico en la consola de transcripción
-  appendJarvisLog('system', 'CIEL AI online · Sistema inicializado');
+  // Inicializar redimensionamiento de ventana de transcripción
+  initTranscriptResize();
 
   const savedTheme = localStorage.getItem('prqa-theme') || 'dark';
   toggleTheme(savedTheme);
@@ -468,6 +472,7 @@ function switchModule(name) {
 
   // Recargar datos según módulo
   if (name === 'generate') {
+    _expandedMatrices.clear();
     loadDocumentsForGenerator();
     loadTestCasesForGenerator();
     updateTestTypeChips();
@@ -478,13 +483,43 @@ function switchModule(name) {
   if (name === 'dashboard') loadDashboard();
 }
 
+let _autoExpandedMatrixFile = null;
+let _expandedMatrices = new Set();
+
+function toggleMatrixCases(matrixKey) {
+  if (_expandedMatrices.has(matrixKey)) {
+    _expandedMatrices.delete(matrixKey);
+  } else {
+    _expandedMatrices.add(matrixKey);
+  }
+  const el = document.getElementById(`matrixCases_${matrixKey}`);
+  const btn = document.getElementById(`btnToggleCases_${matrixKey}`);
+  if (el) {
+    const isNowExpanded = _expandedMatrices.has(matrixKey);
+    el.style.display = isNowExpanded ? 'flex' : 'none';
+    if (isNowExpanded) {
+      el.scrollTop = 0;
+    }
+    if (btn) {
+      btn.innerHTML = isNowExpanded
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M18 15l-6-6-6 6"/></svg> Ocultar Casos`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M6 9l6 6 6-6"/></svg> Ver Casos`;
+    }
+  }
+}
+
 async function loadTestCasesForGenerator() {
   const container = document.getElementById('testCasesContainer');
   if (!container) return;
 
   try {
-    const res = await fetch(`${API_BASE}/api/test-cases/exports?project_name=${encodeURIComponent(currentProject)}`);
-    const files = await res.json();
+    const [resFiles, resCases] = await Promise.all([
+      fetch(`${API_BASE}/api/test-cases/exports?project_name=${encodeURIComponent(currentProject)}`),
+      fetch(`${API_BASE}/api/test-cases?project_name=${encodeURIComponent(currentProject)}`)
+    ]);
+
+    const files = await resFiles.json();
+    const allCases = (await resCases.json()) || [];
 
     if (!files || files.length === 0) {
       container.innerHTML = `
@@ -493,77 +528,232 @@ async function loadTestCasesForGenerator() {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
           </svg>
-          <p>Sin archivos generados</p>
+          <p>Sin matrices generadas</p>
           <span>Genera casos de prueba a la izquierda para crear tu primera matriz Excel EOPA</span>
         </div>
       `;
-      document.getElementById('caseCountBadge').textContent = '0';
+      const badge = document.getElementById('caseCountBadge');
+      if (badge) badge.textContent = '0';
+      const tabBadge = document.getElementById('genTabBadge');
+      if (tabBadge) tabBadge.textContent = '0';
       return;
     }
 
-    document.getElementById('caseCountBadge').textContent = files.length;
+    const badge = document.getElementById('caseCountBadge');
+    if (badge) badge.textContent = files.length;
+    const tabBadge = document.getElementById('genTabBadge');
+    if (tabBadge) tabBadge.textContent = files.length;
+
+    const severityColors = {
+      "Bloqueante": { bg: "rgba(239,68,68,0.12)", color: "#ef4444", border: "rgba(239,68,68,0.3)" },
+      "Crítico": { bg: "rgba(249,115,22,0.12)", color: "#f97316", border: "rgba(249,115,22,0.3)" },
+      "Tolerable": { bg: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "rgba(59,130,246,0.3)" },
+      "Interfaz de usuario": { bg: "rgba(168,85,247,0.12)", color: "#a855f7", border: "rgba(168,85,247,0.3)" }
+    };
 
     container.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:0.6rem;width:100%;">
-        ${files.map(f => {
-      const displayTitle = `Matriz EOPA — ${f.module}`;
-      return `
+      <div style="display:flex;flex-direction:column;gap:0.85rem;width:100%;">
+        ${files.map((f, idx) => {
+          const displayTitle = `Matriz EOPA — ${f.module}`;
+          const isExpanded = _expandedMatrices.has(f.filename);
+
+          // Filtrar casos de la base de datos pertenecientes a este archivo específico o módulo
+          const matchedCases = allCases.filter(c => c.export_file ? c.export_file === f.filename : c.module === f.module);
+          const casesCount = matchedCases.length;
+
+          return `
           <div class="excel-file-card" style="
-            display:flex;align-items:center;gap:0.75rem;
-            background:var(--bg-input);border:1px solid var(--border-subtle);
-            border-radius:var(--radius-md);padding:0.75rem 0.875rem;
+            display:flex;flex-direction:column;gap:0.75rem;
+            background:var(--bg-card);border:1px solid var(--border-subtle);
+            border-radius:var(--radius-md);padding:0.9rem 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             transition:var(--transition);
-          " onmouseenter="this.style.borderColor='var(--border-accent)';this.style.background='var(--bg-panel-hover)'" onmouseleave="this.style.borderColor='var(--border-subtle)';this.style.background='var(--bg-input)'">
-            <!-- Icono Excel (Estilo Ciel Teal corporativo) -->
-            <div style="width:38px;height:38px;border-radius:8px;
-              background:rgba(0,156,166,0.1);color:var(--accent-primary);
-              display:flex;align-items:center;justify-content:center;flex-shrink:0;
-              border:1px solid rgba(0,156,166,0.25);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-              </svg>
-            </div>
-            <!-- Info profesional limpia -->
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;font-size:0.83rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${f.filename}">
-                ${displayTitle}
+          ">
+            <!-- Fila Principal de la Matriz -->
+            <div style="display:flex;align-items:center;gap:0.85rem;width:100%;">
+              <!-- Icono Excel (Estilo Ciel Teal corporativo) -->
+              <div style="width:40px;height:40px;border-radius:8px;
+                background:rgba(0,156,166,0.12);color:var(--accent-primary);
+                display:flex;align-items:center;justify-content:center;flex-shrink:0;
+                border:1px solid rgba(0,156,166,0.3);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
               </div>
-              <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.2rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                <span>Módulo: <strong style="color:var(--text-secondary);">${f.module}</strong></span>
-                <span>·</span>
-                <span>${f.size_kb} KB</span>
-                <span>·</span>
-                <span>📅 ${f.created_at}</span>
+
+              <!-- Metadatos de la Matriz -->
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                  <strong style="font-size:0.92rem;color:var(--text-primary);">${displayTitle}</strong>
+                  <span style="font-size:0.7rem;padding:0.15rem 0.5rem;background:rgba(0,156,166,0.12);color:var(--accent-primary);border-radius:9999px;font-weight:700;">
+                    ${casesCount > 0 ? `${casesCount} Casos` : 'EOPA'}
+                  </span>
+                </div>
+                <div style="font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                  <span>📅 <strong>${f.created_at}</strong></span>
+                  <span>·</span>
+                  <span>📦 ${f.size_kb} KB</span>
+                  <span>·</span>
+                  <span style="font-family:var(--font-mono, monospace);font-size:0.7rem;color:var(--text-secondary);" title="${f.filename}">${f.filename}</span>
+                </div>
+              </div>
+
+              <!-- Acciones Principales -->
+              <div style="display:flex;gap:0.45rem;flex-shrink:0;align-items:center;">
+                <button class="btn-ghost" id="btnToggleCases_${f.filename}" style="padding:0.42rem 0.65rem;font-size:0.75rem;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:0.3rem;"
+                  onclick="toggleMatrixCases('${f.filename}')" title="Ver / Ocultar casos de prueba técnicos">
+                  ${isExpanded
+                    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M18 15l-6-6-6 6"/></svg> Ocultar Casos`
+                    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M6 9l6 6 6-6"/></svg> Ver Casos`
+                  }
+                </button>
+
+                <button class="btn-ghost" style="padding:0.42rem 0.75rem;font-size:0.75rem;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:0.3rem;"
+                  onclick="goToExecution('${f.module}')" title="Ir a ejecutar las pruebas de esta matriz">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  Ejecutar
+                </button>
+
+                <button class="btn-primary" style="padding:0.42rem 0.95rem;font-size:0.75rem;font-weight:700;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:0.35rem;"
+                  onclick="downloadSpecificExcel('${f.filename}')" title="Descargar archivo Excel oficial EOPA DTR029C">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Descargar Excel
+                </button>
+
+                <button onclick="deleteExcel('${f.filename}')" title="Eliminar archivo y sus casos de prueba en cascada"
+                  style="padding:0.42rem 0.55rem;font-size:0.75rem;background:rgba(239,68,68,0.08);color:var(--accent-danger);
+                    border:1px solid rgba(239,68,68,0.25);border-radius:var(--radius-sm);cursor:pointer;transition:var(--transition);"
+                  onmouseenter="this.style.background='rgba(239,68,68,0.2)'" onmouseleave="this.style.background='rgba(239,68,68,0.08)'">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
               </div>
             </div>
-            <!-- Acciones idénticas a los demás botones principales de la app -->
-            <div style="display:flex;gap:0.4rem;flex-shrink:0;">
-              <button class="btn-ghost" style="padding:0.42rem 0.75rem;font-size:0.75rem;border-radius:var(--radius-sm);" onclick="goToExecution('${f.module}')" title="Ir a ejecutar las pruebas de este archivo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-                Ejecutar
-              </button>
-              <button class="btn-primary" style="padding:0.42rem 0.85rem;font-size:0.75rem;border-radius:var(--radius-sm);" onclick="downloadSpecificExcel('${f.filename}')" title="Descargar Excel">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                Descargar
-              </button>
-              <button onclick="deleteExcel('${f.filename}')" title="Eliminar archivo y sus casos de prueba"
-                style="padding:0.42rem 0.55rem;font-size:0.75rem;background:rgba(239,68,68,0.08);color:var(--accent-danger);
-                  border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-sm);cursor:pointer;transition:var(--transition);"
-                onmouseenter="this.style.background='rgba(239,68,68,0.18)'" onmouseleave="this.style.background='rgba(239,68,68,0.08)'">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-                </svg>
-              </button>
+
+            <!-- Desglose de Casos de Prueba con Scroll Independiente por Matriz -->
+            <div id="matrixCases_${f.filename}" class="matrix-cases-scroll-wrap" style="
+              display: ${isExpanded ? 'flex' : 'none'};
+              flex-direction: column;
+              gap: 0.65rem;
+              margin-top: 0.45rem;
+              padding: 0.5rem 0.6rem 0.5rem 0.2rem;
+              border-top: 1px dashed var(--border-subtle);
+              max-height: 480px;
+              overflow-y: auto;
+              overflow-x: hidden;
+            ">
+              ${matchedCases.length > 0 ? `
+                <!-- Barra superior fija con contador y guía de scroll -->
+                <div style="
+                  display:flex;align-items:center;justify-content:space-between;
+                  padding:0.4rem 0.7rem;
+                  background:var(--bg-card);
+                  border:1px solid rgba(0,156,166,0.25);
+                  border-radius:var(--radius-sm);
+                  font-size:0.73rem;
+                  color:var(--text-secondary);
+                  position:sticky;top:0;z-index:4;
+                  box-shadow:0 2px 6px rgba(0,0,0,0.18);
+                ">
+                  <span style="display:flex;align-items:center;gap:0.4rem;">
+                    <strong style="color:var(--accent-primary);">${matchedCases.length} Casos Técnicos</strong>
+                    <span>en esta matriz</span>
+                  </span>
+                  <span style="font-size:0.69rem;color:var(--text-muted);display:flex;align-items:center;gap:0.25rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                    Scroll interno en la matriz
+                  </span>
+                </div>
+              ` : ''}
+              ${matchedCases.length > 0 ? matchedCases.map((tc, cIdx) => {
+                const sevStyle = severityColors[tc.severity] || severityColors["Tolerable"];
+                let steps = [];
+                try {
+                  steps = Array.isArray(tc.steps) ? tc.steps : (typeof tc.steps === 'string' && tc.steps.startsWith('[') ? JSON.parse(tc.steps) : [tc.steps]);
+                } catch (_) {
+                  steps = [tc.steps];
+                }
+
+                return `
+                  <div class="test-preview-card" style="
+                    background:var(--bg-input);border:1px solid var(--border-subtle);
+                    border-radius:var(--radius-sm);padding:0.75rem 0.85rem;
+                    display:flex;flex-direction:column;gap:0.45rem;
+                  ">
+                    <!-- Encabezado del caso: ID, tipo, técnica y severidad -->
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;">
+                      <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                        <span style="font-family:var(--font-mono, monospace);font-weight:700;font-size:0.76rem;color:var(--accent-primary);background:rgba(0,156,166,0.12);padding:0.18rem 0.45rem;border-radius:var(--radius-sm);border:1px solid rgba(0,156,166,0.25);">
+                          ${tc.case_id || `TC-${cIdx+1}`}
+                        </span>
+                        <span class="tc-tag tag-type" style="font-size:0.66rem;padding:0.16rem 0.45rem;">
+                          ${tc.test_type}
+                        </span>
+                        ${tc.technique ? `
+                          <span style="font-size:0.66rem;padding:0.16rem 0.5rem;border-radius:9999px;background:rgba(14,165,233,0.1);color:#0ea5e9;border:1px solid rgba(14,165,233,0.25);font-weight:600;">
+                            🎯 ${tc.technique}
+                          </span>
+                        ` : ''}
+                        <span style="font-size:0.66rem;padding:0.16rem 0.45rem;border-radius:var(--radius-sm);font-weight:700;background:${sevStyle.bg};color:${sevStyle.color};border:1px solid ${sevStyle.border};">
+                          ${tc.severity || 'Tolerable'}
+                        </span>
+                      </div>
+
+                      <button type="button" class="btn-ghost" onclick="copyIndividualCaseGherkin('${encodeURIComponent(JSON.stringify(tc))}')" title="Copiar como escenario BDD (Gherkin)"
+                        style="padding:0.2rem 0.5rem;font-size:0.7rem;display:inline-flex;align-items:center;gap:0.25rem;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Gherkin
+                      </button>
+                    </div>
+
+                    <!-- Título -->
+                    <div style="font-weight:600;font-size:0.82rem;color:var(--text-primary);line-height:1.35;">
+                      ${tc.title}
+                    </div>
+
+                    <!-- Precondición -->
+                    ${tc.preconditions ? `
+                      <div style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-panel);padding:0.35rem 0.55rem;border-radius:var(--radius-sm);border-left:3px solid var(--accent-primary);">
+                        <strong style="color:var(--accent-primary);">🔑 Precondición:</strong> ${tc.preconditions}
+                      </div>
+                    ` : ''}
+
+                    <!-- Pasos -->
+                    ${steps && steps.length > 0 ? `
+                      <div style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-panel);padding:0.35rem 0.55rem;border-radius:var(--radius-sm);">
+                        <strong style="color:var(--text-primary);display:block;margin-bottom:0.15rem;">📋 Pasos de Ejecución:</strong>
+                        <ol style="margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:0.12rem;">
+                          ${steps.map(s => `<li>${String(s).replace(/^\d+\.\s*/, '')}</li>`).join('')}
+                        </ol>
+                      </div>
+                    ` : ''}
+
+                    <!-- Resultado Esperado -->
+                    <div style="font-size:0.72rem;color:var(--text-primary);background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;">
+                      <strong style="color:#10b981;">✓ Resultado Esperado:</strong> ${tc.expected_result}
+                    </div>
+                  </div>
+                `;
+              }).join('') : `
+                <div style="font-size:0.75rem;color:var(--text-muted);padding:0.5rem;text-align:center;">
+                  Descarga el archivo Excel para inspeccionar los casos completos de esta matriz histórica.
+                </div>
+              `}
             </div>
           </div>
         `}).join('')}
       </div>
     `;
+
+    _autoExpandedMatrixFile = null;
 
   } catch (e) {
     console.error('Error cargando historial de archivos Excel:', e);
@@ -571,8 +761,40 @@ async function loadTestCasesForGenerator() {
   }
 }
 
+function copyIndividualCaseGherkin(rawJson) {
+  try {
+    const tc = JSON.parse(decodeURIComponent(rawJson));
+    let steps = [];
+    try {
+      steps = Array.isArray(tc.steps) ? tc.steps : (typeof tc.steps === 'string' && tc.steps.startsWith('[') ? JSON.parse(tc.steps) : [tc.steps]);
+    } catch (_) {
+      steps = [tc.steps];
+    }
+    const stepsGherkin = steps.length > 0
+      ? steps.map(s => `    And ${String(s).replace(/^\d+\.\s*/, '')}`).join('\n')
+      : `    When el usuario ejecuta la acción "${tc.title}"`;
+
+    const gherkin = [
+      `@test-${(tc.case_id || 'tc').toLowerCase()} @severity-${(tc.severity || 'tolerable').toLowerCase()}`,
+      `Scenario: ${tc.case_id} - ${tc.title.slice(0, 70)}`,
+      `  Given ${tc.preconditions || 'el sistema se encuentra en estado operativo'}`,
+      `  When el tester procede con la prueba:`,
+      stepsGherkin,
+      `  Then ${tc.expected_result}`
+    ].join('\n');
+
+    navigator.clipboard.writeText(gherkin).then(() => {
+      showToast(`📋 Escenario Gherkin copiado al portapapeles (${tc.case_id})`, 'success');
+    }).catch(() => {
+      showToast('Error al copiar al portapapeles', 'error');
+    });
+  } catch (e) {
+    showToast('Error al procesar caso de prueba', 'error');
+  }
+}
+
 async function deleteExcel(filename) {
-  if (!confirm(`¿Eliminar "${filename}"?\n\nEsto también eliminará los casos de prueba generados en esa sesión. Esta acción no se puede deshacer.`)) return;
+  if (!confirm(`¿Eliminar "${filename}"?\n\nEsto también eliminará los casos de prueba generados en esa sesión y sus registros de ejecución. Esta acción no se puede deshacer.`)) return;
   try {
     const res = await fetch(`${API_BASE}/api/test-cases/exports/delete?project_name=${encodeURIComponent(currentProject)}&filename=${encodeURIComponent(filename)}`, {
       method: 'DELETE',
@@ -586,8 +808,8 @@ async function deleteExcel(filename) {
     const casesMsg = result.db_cases_deleted > 0
       ? ` y ${result.db_cases_deleted} caso${result.db_cases_deleted !== 1 ? 's' : ''} de prueba`
       : '';
-    showToast(`Archivo eliminado${casesMsg}`, 'success');
-    // Refrescar historial de generados y la lista de ejecuciones siempre
+    showToast(`Matriz eliminada exitosamente${casesMsg}`, 'success');
+    _execAllCasesCache = [];
     loadTestCasesForGenerator();
     loadTestCasesForExecution();
   } catch (e) {
@@ -976,7 +1198,23 @@ function removeTypingIndicator(id) {
 // ══════════════════════════════════════════════════════════════
 function toggleTestTypesDropdown() {
   const dropdown = document.getElementById('testTypesDropdown');
-  if (dropdown) dropdown.classList.toggle('hidden');
+  const btn = document.getElementById('testTypesBtn');
+  if (!dropdown || !btn) return;
+
+  const isHidden = dropdown.classList.contains('hidden');
+
+  if (isHidden) {
+    // Posicionar el dropdown con posicion fija para que no sea cortado por overflow
+    const rect = btn.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.top = (rect.bottom + 4) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.width = rect.width + 'px';
+    dropdown.style.zIndex = '9999';
+    dropdown.classList.remove('hidden');
+  } else {
+    dropdown.classList.add('hidden');
+  }
 }
 
 function updateTestTypeChips() {
@@ -1017,23 +1255,202 @@ function removeTestType(val) {
 document.addEventListener('click', function (e) {
   const select = document.getElementById('customTestTypesSelect');
   const dropdown = document.getElementById('testTypesDropdown');
-  if (select && dropdown && !select.contains(e.target)) {
+  const chipsContainer = document.getElementById('selectedTestTypeChips');
+  if (dropdown && !dropdown.classList.contains('hidden')) {
+    const clickedInsideBtn = select && select.contains(e.target);
+    const clickedInsideDropdown = dropdown.contains(e.target);
+    const clickedInsideChips = chipsContainer && chipsContainer.contains(e.target);
+    if (!clickedInsideBtn && !clickedInsideDropdown && !clickedInsideChips) {
+      dropdown.classList.add('hidden');
+    }
+  }
+});
+
+// Actualizar posicion del dropdown al hacer scroll o resize
+window.addEventListener('scroll', function() {
+  const dropdown = document.getElementById('testTypesDropdown');
+  if (dropdown && !dropdown.classList.contains('hidden')) {
+    const btn = document.getElementById('testTypesBtn');
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      dropdown.style.top = (rect.bottom + 4) + 'px';
+      dropdown.style.left = rect.left + 'px';
+    }
+  }
+}, true);
+
+window.addEventListener('resize', function() {
+  const dropdown = document.getElementById('testTypesDropdown');
+  if (dropdown && !dropdown.classList.contains('hidden')) {
     dropdown.classList.add('hidden');
   }
 });
 
 // ══════════════════════════════════════════════════════════════
-// MÓDULO 2 — GENERADOR DE CASOS DE PRUEBA
+// MÓDULO 2 — GENERADOR DE CASOS DE PRUEBA (ISTQB & EOPA)
 // ══════════════════════════════════════════════════════════════
+let _lastGeneratedTestCases = [];
+
+function switchGenTab(tabName) {
+  const btnConfig = document.getElementById('genTabBtnConfig');
+  const btnResults = document.getElementById('genTabBtnResults');
+  const viewConfig = document.getElementById('genTabContentConfig');
+  const viewResults = document.getElementById('genTabContentResults');
+
+  if (tabName === 'config') {
+    if (btnConfig) btnConfig.classList.add('active');
+    if (btnResults) btnResults.classList.remove('active');
+    if (viewConfig) viewConfig.style.display = 'block';
+    if (viewResults) viewResults.style.display = 'none';
+  } else {
+    if (btnResults) btnResults.classList.add('active');
+    if (btnConfig) btnConfig.classList.remove('active');
+    if (viewConfig) viewConfig.style.display = 'none';
+    if (viewResults) viewResults.style.display = 'block';
+  }
+}
+window.switchGenTab = switchGenTab;
+
+function renderGeneratedTestCasesPreview(cases) {
+  const container = document.getElementById('genPreviewContainer');
+  const badge = document.getElementById('previewCountBadge');
+  if (!container) return;
+
+  _lastGeneratedTestCases = cases || [];
+  if (badge) badge.textContent = _lastGeneratedTestCases.length;
+
+  if (!_lastGeneratedTestCases || _lastGeneratedTestCases.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        </svg>
+        <p>Sin casos generados</p>
+        <span>Genera casos de prueba para visualizar el desglose técnico en esta pestaña</span>
+      </div>
+    `;
+    return;
+  }
+
+  const severityColors = {
+    "Bloqueante": { bg: "rgba(239,68,68,0.12)", color: "#ef4444", border: "rgba(239,68,68,0.3)" },
+    "Crítico": { bg: "rgba(249,115,22,0.12)", color: "#f97316", border: "rgba(249,115,22,0.3)" },
+    "Tolerable": { bg: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "rgba(59,130,246,0.3)" },
+    "Interfaz de usuario": { bg: "rgba(168,85,247,0.12)", color: "#a855f7", border: "rgba(168,85,247,0.3)" }
+  };
+
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:0.75rem;width:100%;">
+      ${_lastGeneratedTestCases.map((tc, idx) => {
+        const sevStyle = severityColors[tc.severity] || severityColors["Tolerable"];
+        const steps = Array.isArray(tc.steps) ? tc.steps : (typeof tc.steps === 'string' && tc.steps.startsWith('[') ? JSON.parse(tc.steps) : []);
+        
+        return `
+          <div class="test-preview-card" style="
+            background:var(--bg-card);border:1px solid var(--border-subtle);
+            border-radius:var(--radius-md);padding:0.9rem 1rem;
+            display:flex;flex-direction:column;gap:0.55rem;
+            transition:var(--transition);
+          " onmouseenter="this.style.borderColor='var(--border-accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+            
+            <!-- Encabezado del caso: ID, tipo, técnica y severidad -->
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;">
+              <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono, monospace);font-weight:700;font-size:0.78rem;color:var(--accent-primary);background:rgba(0,156,166,0.1);padding:0.2rem 0.5rem;border-radius:var(--radius-sm);border:1px solid rgba(0,156,166,0.25);">
+                  ${tc.case_id || `TC-${idx+1}`}
+                </span>
+                <span class="tc-tag tag-type" style="font-size:0.68rem;padding:0.18rem 0.45rem;">
+                  ${tc.test_type}
+                </span>
+                ${tc.technique ? `
+                  <span style="font-size:0.68rem;padding:0.18rem 0.5rem;border-radius:9999px;background:rgba(14,165,233,0.1);color:#0ea5e9;border:1px solid rgba(14,165,233,0.25);font-weight:600;">
+                    🎯 ${tc.technique}
+                  </span>
+                ` : ''}
+                <span style="font-size:0.68rem;padding:0.18rem 0.45rem;border-radius:var(--radius-sm);font-weight:700;background:${sevStyle.bg};color:${sevStyle.color};border:1px solid ${sevStyle.border};">
+                  ${tc.severity || 'Tolerable'}
+                </span>
+              </div>
+
+              <!-- Acciones: Copiar Gherkin -->
+              <div style="display:flex;gap:0.35rem;">
+                <button type="button" class="btn-ghost" onclick="copyTestCaseGherkin('${tc.case_id}')" title="Copiar como escenario BDD (Gherkin)"
+                  style="padding:0.25rem 0.55rem;font-size:0.72rem;display:inline-flex;align-items:center;gap:0.3rem;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  Gherkin
+                </button>
+              </div>
+            </div>
+
+            <!-- Título / Acción -->
+            <div style="font-weight:600;font-size:0.84rem;color:var(--text-primary);line-height:1.4;">
+              ${tc.title}
+            </div>
+
+            <!-- Precondiciones si existen -->
+            ${tc.preconditions ? `
+              <div style="font-size:0.74rem;color:var(--text-secondary);background:var(--bg-input);padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border-left:3px solid var(--accent-primary);">
+                <strong style="color:var(--accent-primary);">🔑 Precondición:</strong> ${tc.preconditions}
+              </div>
+            ` : ''}
+
+            <!-- Pasos numerados si existen -->
+            ${steps && steps.length > 0 ? `
+              <div style="font-size:0.73rem;color:var(--text-secondary);background:var(--bg-input);padding:0.4rem 0.6rem;border-radius:var(--radius-sm);">
+                <strong style="color:var(--text-primary);display:block;margin-bottom:0.2rem;">📋 Pasos de Ejecución:</strong>
+                <ol style="margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:0.15rem;">
+                  ${steps.map(s => `<li>${s.replace(/^\d+\.\s*/, '')}</li>`).join('')}
+                </ol>
+              </div>
+            ` : ''}
+
+            <!-- Resultado esperado -->
+            <div style="font-size:0.74rem;color:var(--text-primary);background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:var(--radius-sm);padding:0.45rem 0.65rem;">
+              <strong style="color:#10b981;">✓ Resultado Esperado:</strong> ${tc.expected_result}
+            </div>
+
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function copyTestCaseGherkin(caseId) {
+  const tc = _lastGeneratedTestCases.find(c => c.case_id === caseId);
+  if (!tc) return;
+
+  const steps = Array.isArray(tc.steps) ? tc.steps : (typeof tc.steps === 'string' && tc.steps.startsWith('[') ? JSON.parse(tc.steps) : []);
+  const stepsGherkin = steps.length > 0
+    ? steps.map(s => `    And ${s.replace(/^\d+\.\s*/, '')}`).join('\n')
+    : `    When el usuario ejecuta la acción "${tc.title}"`;
+
+  const gherkin = [
+    `@test-${tc.case_id.toLowerCase()} @severity-${(tc.severity || 'tolerable').toLowerCase()}`,
+    `Scenario: ${tc.case_id} - ${tc.title.slice(0, 70)}`,
+    `  Given ${tc.preconditions || 'el sistema se encuentra en estado operativo'}`,
+    `  When el tester procede con la prueba:`,
+    stepsGherkin,
+    `  Then ${tc.expected_result}`
+  ].join('\n');
+
+  navigator.clipboard.writeText(gherkin).then(() => {
+    showToast(`📋 Escenario Gherkin copiado al portapapeles (${tc.case_id})`, 'success');
+  }).catch(() => {
+    showToast('Error al copiar al portapapeles', 'error');
+  });
+}
+
 async function generateTestCases() {
   const btn = document.getElementById('generateBtn');
   const loading = document.getElementById('generatorLoading');
-  const container = document.getElementById('testCasesContainer');
 
   const reqInput = document.getElementById('promptInput') || document.getElementById('requirementText');
   const requirementText = reqInput ? reqInput.value.trim() : '';
-  if (!requirementText) {
-    showToast('Por favor ingresa el requerimiento o selecciona documentos de referencia.', 'error');
+  if (!requirementText && generatorSelectedDocIds.length === 0) {
+    showToast('Por favor ingresa el requerimiento o selecciona al menos un documento de referencia.', 'error');
     return;
   }
 
@@ -1053,15 +1470,21 @@ async function generateTestCases() {
   loading.classList.remove('hidden');
 
   try {
+    // Asegurar que el input de proyecto y currentProject coincidan
+    const effectiveProject = currentProject || 'General';
+    const projInput = document.getElementById('projectName');
+    if (projInput) projInput.value = effectiveProject;
+
     const response = await fetch(`${API_BASE}/api/test-cases/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         requirement_text: requirementText,
-        project_name: document.getElementById('projectName').value || currentProject || 'Proyecto',
-        module: document.getElementById('moduleName').value || 'General',
+        project_name: effectiveProject,
+        module: (document.getElementById('moduleName')?.value || '').trim() || 'General',
         test_types: testTypes,
         num_cases: numCases,
+        selected_doc_ids: generatorSelectedDocIds,
       }),
     });
 
@@ -1071,10 +1494,13 @@ async function generateTestCases() {
       throw new Error(data.detail || 'Error generando casos de prueba');
     }
 
-    // Refrescar el historial de Excels generados
+    // Refrescar el listado de matrices generadas (que incluye los casos técnicos detallados)
     await loadTestCasesForGenerator();
 
-    showToast(`✅ Matriz EOPA generada: ${data.excel_filename}`, 'success');
+    // Cambiar automáticamente a la pestaña de matrices y casos generados
+    switchGenTab('results');
+
+    showToast(`✅ ${data.total || numCases} casos generados en estándar EOPA (${data.excel_filename || 'Excel'})`, 'success');
 
     // Descarga automática del Excel recién generado
     if (data.excel_filename) {
@@ -1083,15 +1509,18 @@ async function generateTestCases() {
 
   } catch (e) {
     showToast(e.message, 'error');
-    container.innerHTML = `
-      <div class="empty-state">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color:var(--accent-danger)">
-          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <p>Error al generar</p>
-        <span>${e.message}</span>
-      </div>
-    `;
+    const container = document.getElementById('genPreviewContainer');
+    if (container) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color:var(--accent-danger)">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <p>Error al generar</p>
+          <span>${e.message}</span>
+        </div>
+      `;
+    }
   } finally {
     loading.classList.add('hidden');
     btn.disabled = false;
@@ -1130,6 +1559,8 @@ let _execCurrentGroup = null; // { module, created_at, cases, sessionKey }
 
 async function loadTestCasesForExecution() {
   const matrixGrid = document.getElementById('execMatrixGrid');
+  const kpiRow = document.getElementById('execKpiRow');
+  const subtitle = document.getElementById('execSubtitle');
   if (!matrixGrid) return;
 
   // Asegurar que la vista de lista es visible
@@ -1141,26 +1572,87 @@ async function loadTestCasesForExecution() {
     const res = await fetch(url);
     const cases = await res.json();
 
-    // Actualizar KPIs globales
-    updateExecGlobalKpis(cases || []);
-
     if (!cases || cases.length === 0) {
+      if (kpiRow) kpiRow.style.display = 'none';
+      if (subtitle) subtitle.style.display = 'none';
+      matrixGrid.style.display = 'block';
+
       matrixGrid.innerHTML = `
-        <div class="empty-state" style="padding:3rem 2rem;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" width="48" height="48" style="opacity:0.4">
-            <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-          </svg>
-          <p style="margin-top:0.75rem;font-weight:700;color:var(--text-secondary);">No hay casos de prueba disponibles</p>
-          <span style="font-size:0.82rem;color:var(--text-muted);max-width:320px;text-align:center;display:block;">
-            Los casos de prueba se generan desde <strong>Generar Casos</strong>. Una vez generados aparecerán aquí automáticamente.
-          </span>
-          <div style="display:flex;gap:0.75rem;margin-top:1.25rem;">
-            <button class="btn-primary" onclick="switchModule('generate')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
-              Ir a Generar Casos
+        <div class="exec-empty-card" style="
+          max-width: 580px;
+          margin: 2.5rem auto 3rem;
+          background: var(--bg-card);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-lg);
+          padding: 2.6rem 2.2rem;
+          text-align: center;
+          box-shadow: 0 12px 36px rgba(0,0,0,0.35);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          position: relative;
+          overflow: hidden;
+        ">
+          <!-- Brillo superior ambiental -->
+          <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:260px;height:2px;background:linear-gradient(90deg, transparent, var(--accent-primary), transparent);"></div>
+
+          <div style="
+            width: 66px; height: 66px; border-radius: 18px;
+            background: rgba(0, 156, 166, 0.12);
+            color: var(--accent-primary);
+            border: 1px solid rgba(0, 156, 166, 0.35);
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 0 24px rgba(0, 156, 166, 0.16);
+          ">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="30" height="30">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+          </div>
+
+          <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.45rem;">
+            No hay matrices de prueba disponibles para ejecutar
+          </h3>
+
+          <p style="font-size: 0.83rem; color: var(--text-secondary); max-width: 440px; line-height: 1.55; margin: 0 0 1.6rem;">
+            Para registrar resultados técnicos (<span style="color:#10b981;font-weight:600;">CUMPLE</span> / <span style="color:#ef4444;font-weight:600;">NO CUMPLE</span>) y cronometrar las pruebas, genera primero tu matriz en el módulo de casos.
+          </p>
+
+          <!-- Flujo guiado en 3 pasos -->
+          <div style="
+            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;
+            width: 100%; max-width: 510px; margin-bottom: 1.8rem; text-align: left;
+          ">
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.75rem 0.8rem;">
+              <div style="font-size: 0.68rem; font-weight: 700; color: var(--accent-primary); margin-bottom: 0.2rem;">PASO 1</div>
+              <div style="font-size: 0.76rem; font-weight: 600; color: var(--text-primary);">Documentos</div>
+              <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 0.2rem;">Carga requerimientos en Base de Conocimiento.</div>
+            </div>
+            <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.75rem 0.8rem;">
+              <div style="font-size: 0.68rem; font-weight: 700; color: var(--accent-primary); margin-bottom: 0.2rem;">PASO 2</div>
+              <div style="font-size: 0.76rem; font-weight: 600; color: var(--text-primary);">Generar Casos</div>
+              <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 0.2rem;">La IA crea la matriz técnica en formato EOPA.</div>
+            </div>
+            <div style="background: rgba(0,156,166,0.06); border: 1px solid rgba(0,156,166,0.3); border-radius: var(--radius-sm); padding: 0.75rem 0.8rem;">
+              <div style="font-size: 0.68rem; font-weight: 700; color: var(--accent-primary); margin-bottom: 0.2rem;">PASO 3</div>
+              <div style="font-size: 0.76rem; font-weight: 600; color: var(--text-primary);">Ejecutar Aquí</div>
+              <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 0.2rem;">Registra CUMPLE, defectos y métricas.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.85rem; justify-content: center; align-items: center; flex-wrap: wrap;">
+            <button class="btn-primary" onclick="switchModule('generate')" style="padding: 0.62rem 1.35rem; font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 4px 14px rgba(0,156,166,0.25);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+              Ir a Generar Casos con IA
             </button>
-            <button class="btn-ghost" onclick="loadTestCasesForExecution()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            <button class="btn-ghost" onclick="loadTestCasesForExecution()" style="padding: 0.62rem 1.05rem; font-size: 0.80rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
               Actualizar
             </button>
           </div>
@@ -1168,6 +1660,14 @@ async function loadTestCasesForExecution() {
       `;
       return;
     }
+
+    // Cuando sí existen casos:
+    if (kpiRow) kpiRow.style.display = 'flex';
+    if (subtitle) subtitle.style.display = 'block';
+    matrixGrid.style.display = 'grid';
+
+    // Actualizar KPIs globales
+    updateExecGlobalKpis(cases || []);
 
     matrixGrid.innerHTML = renderExecMatrixCards(cases);
 
@@ -1197,8 +1697,10 @@ function updateExecGlobalKpis(cases) {
 function renderExecMatrixCards(cases) {
   const groups = {};
   cases.forEach(tc => {
-    const sessionKey = `${tc.module}|||${(tc.created_at || '').slice(0, 16)}`;
-    if (!groups[sessionKey]) groups[sessionKey] = { module: tc.module, created_at: tc.created_at, cases: [], sessionKey };
+    const sessionKey = tc.export_file
+      ? `${tc.module}|||${tc.export_file}`
+      : `${tc.module}|||${(tc.created_at || '').slice(0, 16)}`;
+    if (!groups[sessionKey]) groups[sessionKey] = { module: tc.module, created_at: tc.created_at, export_file: tc.export_file, cases: [], sessionKey };
     groups[sessionKey].cases.push(tc);
   });
 
@@ -1254,15 +1756,48 @@ function renderExecMatrixCards(cases) {
           </div>
         </div>
 
-        <!-- Flecha indicadora -->
-        <div class="exec-matrix-card-arrow">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
+        <!-- Acciones: Eliminar matriz y Flecha indicadora -->
+        <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0;">
+          <button class="btn-icon" style="color:var(--accent-danger);padding:0.38rem 0.55rem;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:6px;cursor:pointer;transition:var(--transition);"
+            onclick="event.stopPropagation(); deleteExecMatrix('${encodeURIComponent(group.module)}', '${encodeURIComponent(group.created_at || '')}')"
+            title="Eliminar esta matriz y todas sus ejecuciones">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+            </svg>
+          </button>
+          <div class="exec-matrix-card-arrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </div>
         </div>
       </div>
     `;
   }).join('');
+}
+
+async function deleteExecMatrix(encodedModule, encodedCreatedAt) {
+  const mod = decodeURIComponent(encodedModule);
+  const cr = decodeURIComponent(encodedCreatedAt || '');
+  if (!confirm(`¿Eliminar la matriz "${mod}" y todas sus pruebas ejecutadas?\n\nEsta acción eliminará los casos de prueba de la base de datos, el historial de ejecuciones y su archivo Excel asociado. Esta acción no se puede deshacer.`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/test-cases/matrix/delete?project_name=${encodeURIComponent(currentProject)}&module=${encodeURIComponent(mod)}&created_at=${encodeURIComponent(cr)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.detail || 'Error al eliminar matriz', 'error');
+      return;
+    }
+    const result = await res.json();
+    showToast(`Matriz eliminada exitosamente (${result.db_cases_deleted} casos)`, 'success');
+    _execAllCasesCache = [];
+    loadTestCasesForExecution();
+    loadTestCasesForGenerator();
+  } catch (e) {
+    showToast('Error al eliminar matriz: ' + e.message, 'error');
+  }
 }
 
 // ── Abrir detalle de una matriz específica ──
@@ -1283,21 +1818,24 @@ async function openExecMatrixDetail(encodedKey) {
   }
 
   // Filtrar casos del grupo
-  const [module, datePrefix] = sessionKey.split('|||');
+  const [module, fileOrDate] = sessionKey.split('|||');
   const groupCases = _execAllCasesCache.filter(tc =>
-    tc.module === module && (tc.created_at || '').slice(0, 16) === datePrefix
+    tc.module === module && (
+      (tc.export_file && tc.export_file === fileOrDate) ||
+      (tc.created_at || '').slice(0, 16) === fileOrDate
+    )
   );
 
-  _execCurrentGroup = { module, created_at: datePrefix, cases: groupCases, sessionKey };
+  _execCurrentGroup = { module, created_at: fileOrDate, cases: groupCases, sessionKey };
 
   // Actualizar título y meta
   const titleEl = document.getElementById('execDetailTitle');
   const metaEl = document.getElementById('execDetailMeta');
   if (titleEl) titleEl.textContent = `📋 ${module}`;
   if (metaEl) {
-    let cleanDate = datePrefix;
+    let cleanDate = fileOrDate;
     try {
-      const iso = (typeof datePrefix === 'string' && !datePrefix.endsWith('Z') && !datePrefix.includes('+')) ? datePrefix + 'Z' : datePrefix;
+      const iso = (typeof fileOrDate === 'string' && !fileOrDate.endsWith('Z') && !fileOrDate.includes('+')) ? fileOrDate + 'Z' : fileOrDate;
       cleanDate = new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
     } catch (_) {}
     metaEl.textContent = `📅 ${cleanDate} · ${groupCases.length} casos`;
@@ -1306,7 +1844,7 @@ async function openExecMatrixDetail(encodedKey) {
   // Botón de descargar resultados
   const exportBtn = document.getElementById('execDetailExportBtn');
   if (exportBtn) {
-    exportBtn.onclick = () => exportGroupResults(module, datePrefix);
+    exportBtn.onclick = () => exportGroupResults(module, fileOrDate);
   }
 
   // Renderizar casos
@@ -1851,54 +2389,48 @@ async function uploadDocument(file) {
   formData.append('file', file);
 
   const zone = document.getElementById('uploadZone');
-  const grid = document.getElementById('documentsGrid');
+  const progressBox = document.getElementById('docUploadProgressContainer');
 
   zone.style.borderColor = 'var(--accent-primary)';
   activeIndexingFile = file.name;
 
   showToast(`🚀 Subiendo "${file.name}"...`, 'info');
 
-  // Insertar la card de indexación al INICIO del grid (sin borrar los docs existentes)
-  if (grid) {
-    const indexingCard = document.createElement('div');
-    indexingCard.id = 'activeIndexingCard';
-    indexingCard.className = 'doc-card indexing-card';
-    indexingCard.style.cssText = `
-      grid-column: 1 / -1;
-      background: rgba(99, 102, 241, 0.08);
-      border: 2px dashed var(--accent-primary);
-      border-radius: var(--radius-md);
-      padding: 1.25rem 1.5rem;
-      display: flex;
-      align-items: center;
-      gap: 1.25rem;
-      animation: pulseBorder 2s infinite ease-in-out;
-    `;
-    indexingCard.innerHTML = `
+  // Mostrar el indicador de carga en el contenedor dedicado superior SIN tocar la tabla de documentos existentes
+  if (progressBox) {
+    progressBox.classList.remove('hidden');
+    progressBox.style.display = 'block';
+    progressBox.innerHTML = `
       <div style="
-        width: 36px; height: 36px;
-        border: 3px solid rgba(99, 102, 241, 0.2);
-        border-top-color: var(--accent-primary);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        flex-shrink: 0;
-      "></div>
-      <div style="flex:1;">
-        <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
-          <span>⚡ Indexando documento en la IA:</span>
-          <strong style="color: var(--accent-primary);">${file.name}</strong>
-        </div>
-        <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.25rem;">
-          Extrayendo contenido, fragmentando en bloques y generando embeddings vectoriales en ChromaDB... Por favor espera un momento.
+        background: rgba(0, 156, 166, 0.08);
+        border: 1.5px dashed var(--accent-primary);
+        border-radius: var(--radius-md);
+        padding: 1.1rem 1.3rem;
+        display: flex;
+        align-items: center;
+        gap: 1.1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        animation: pulseBorder 2s infinite ease-in-out;
+      ">
+        <div style="
+          width: 32px; height: 32px;
+          border: 3px solid rgba(0, 156, 166, 0.2);
+          border-top-color: var(--accent-primary);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          flex-shrink: 0;
+        "></div>
+        <div style="flex:1;">
+          <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+            <span>⚡ Indexando documento en la IA:</span>
+            <strong style="color: var(--accent-primary);">${file.name}</strong>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">
+            Extrayendo contenido, fragmentando en bloques y generando embeddings vectoriales en ChromaDB... Por favor espera un momento.
+          </div>
         </div>
       </div>
     `;
-    // Insertar al principio sin eliminar el contenido existente
-    const emptyState = grid.querySelector('.empty-state');
-    if (emptyState) {
-      grid.innerHTML = '';
-    }
-    grid.insertBefore(indexingCard, grid.firstChild);
   }
 
   try {
@@ -1918,6 +2450,11 @@ async function uploadDocument(file) {
   } catch (e) {
     showToast('Error al subir: ' + e.message, 'error');
     activeIndexingFile = null;
+    if (progressBox) {
+      progressBox.classList.add('hidden');
+      progressBox.style.display = 'none';
+      progressBox.innerHTML = '';
+    }
     loadDocuments();
   } finally {
     zone.style.borderColor = '';
@@ -1927,7 +2464,7 @@ async function uploadDocument(file) {
 
 async function pollIndexingCompletion(filename) {
   let attempts = 0;
-  const maxAttempts = 20;
+  const maxAttempts = 25;
 
   const interval = setInterval(async () => {
     attempts++;
@@ -1939,9 +2476,12 @@ async function pollIndexingCompletion(filename) {
       if (doc) {
         clearInterval(interval);
         activeIndexingFile = null;
-        // Quitar la card de carga antes de recargar la lista
-        const card = document.getElementById('activeIndexingCard');
-        if (card) card.remove();
+        const progressBox = document.getElementById('docUploadProgressContainer');
+        if (progressBox) {
+          progressBox.classList.add('hidden');
+          progressBox.style.display = 'none';
+          progressBox.innerHTML = '';
+        }
         showToast(`✅ "${filename}" indexado exitosamente (${doc.chunks} fragmentos).`, 'success');
         loadDocuments();
         loadDocumentsForGenerator();
@@ -1954,6 +2494,12 @@ async function pollIndexingCompletion(filename) {
     if (attempts >= maxAttempts) {
       clearInterval(interval);
       activeIndexingFile = null;
+      const progressBox = document.getElementById('docUploadProgressContainer');
+      if (progressBox) {
+        progressBox.classList.add('hidden');
+        progressBox.style.display = 'none';
+        progressBox.innerHTML = '';
+      }
       loadDocuments();
     }
   }, 1500);
@@ -1970,34 +2516,6 @@ async function loadDocuments() {
     const categoryLabels = { mtr: 'MTR', requirements: 'Requerimientos', templates: 'Plantillas' };
     const catBadgeClass = { mtr: 'doc-badge-mtr', requirements: 'doc-badge-req', templates: 'doc-badge-templates' };
 
-    let indexingRowHtml = '';
-    if (activeIndexingFile) {
-      indexingRowHtml = `
-        <tr id="activeIndexingRow" style="background: rgba(0, 156, 166, 0.08); border-left: 3px solid var(--accent-primary);">
-          <td colspan="7" style="padding: 1rem 1.25rem;">
-            <div style="display: flex; align-items: center; gap: 1rem;">
-              <div style="
-                width: 28px; height: 28px;
-                border: 3px solid rgba(0, 156, 166, 0.2);
-                border-top-color: var(--accent-primary);
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-                flex-shrink: 0;
-              "></div>
-              <div style="flex: 1;">
-                <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-primary);">
-                  ⚡ Indexando en la IA: <strong style="color: var(--accent-primary);">${activeIndexingFile}</strong>
-                </div>
-                <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
-                  Extrayendo texto, fragmentando y generando embeddings vectoriales en ChromaDB...
-                </div>
-              </div>
-            </div>
-          </td>
-        </tr>
-      `;
-    }
-
     const projTitle = document.getElementById('kbActiveProjectTitle');
     if (projTitle) projTitle.textContent = currentProject || 'Proyectos';
 
@@ -2010,30 +2528,26 @@ async function loadDocuments() {
     }
 
     if (!docs || docs.length === 0) {
-      if (activeIndexingFile) {
-        grid.innerHTML = indexingRowHtml;
-      } else {
-        grid.innerHTML = `
-          <tr>
-            <td colspan="7">
-              <div class="kb-empty-state">
-                <div class="kb-empty-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                  </svg>
-                </div>
-                <p class="kb-empty-title">No hay documentos indexados</p>
-                <span class="kb-empty-sub">Sube tus archivos MTR, requerimientos o plantillas para comenzar</span>
+      grid.innerHTML = `
+        <tr>
+          <td colspan="7">
+            <div class="kb-empty-state">
+              <div class="kb-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
               </div>
-            </td>
-          </tr>
-        `;
-      }
+              <p class="kb-empty-title">No hay documentos indexados</p>
+              <span class="kb-empty-sub">Sube tus archivos MTR, requerimientos o plantillas para comenzar</span>
+            </div>
+          </td>
+        </tr>
+      `;
       return;
     }
 
-    grid.innerHTML = indexingRowHtml + docs.map(doc => {
+    grid.innerHTML = docs.map(doc => {
       const ext = (doc.filename.split('.').pop() || 'DOC').toUpperCase();
       let fileTypeStyle = 'background:rgba(0,156,166,0.12);color:var(--accent-primary);';
       if (ext === 'PDF') {
@@ -2658,7 +3172,13 @@ async function loadTimerStats() {
     if (barsContainer) {
       const rfs = data.by_rf || [];
       if (rfs.length === 0) {
-        barsContainer.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;">Ejecuta casos cronometrados para visualizar métricas por módulo.</div>';
+        barsContainer.innerHTML = `
+          <div class="timer-empty-inline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="22" height="22" style="opacity:0.35;margin-bottom:0.4rem;">
+              <rect x="3" y="12" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/>
+            </svg>
+            <span>Sin métricas por módulo aún</span>
+          </div>`;
       } else {
         const maxSecs = Math.max(...rfs.map(r => r.avg_seconds || r.total_seconds || 1), 1);
         barsContainer.innerHTML = rfs.map(r => {
@@ -2690,7 +3210,13 @@ async function loadTimerStats() {
           }));
 
       if (typeList.length === 0) {
-        typeGrid.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;grid-column:1/-1;">Sin datos registrados aún.</div>';
+        typeGrid.innerHTML = `
+          <div class="timer-empty-inline" style="grid-column:1/-1;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="22" height="22" style="opacity:0.35;margin-bottom:0.4rem;">
+              <circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span>Sin registros por tipo aún</span>
+          </div>`;
       } else {
         typeGrid.innerHTML = typeList.map(tData => {
           const avgSec = Math.round(tData.avg_seconds || (tData.count ? tData.total_seconds / tData.count : 0));
@@ -2856,6 +3382,91 @@ function toggleTranscriptPopup() {
   toggleTranscriptDrawer();
 }
 
+function toggleMaximizeTranscript() {
+  const panel = document.getElementById('jarvisLogPanel');
+  if (!panel) return;
+  panel.classList.toggle('jlp-maximized');
+  const isMax = panel.classList.contains('jlp-maximized');
+  const btn = document.getElementById('jlpMaxBtn');
+  if (btn) {
+    btn.title = isMax ? 'Restaurar tamaño' : 'Maximizar ventana';
+    btn.innerHTML = isMax
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>`;
+  }
+}
+
+function initTranscriptResize() {
+  const panel = document.getElementById('jarvisLogPanel');
+  const handle = document.getElementById('jlpResizeCorner');
+  if (!panel || !handle) return;
+
+  // Restaurar tamaño previo si existe
+  try {
+    const saved = localStorage.getItem('prqa-transcript-size');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.width && parsed.height) {
+        panel.style.width = parsed.width + 'px';
+        panel.style.height = parsed.height + 'px';
+      }
+    }
+  } catch (_) {}
+
+  let isResizing = false;
+  let startX = 0;
+  let startY = 0;
+  let startW = 0;
+  let startH = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startW = panel.offsetWidth;
+    startH = panel.offsetHeight;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'nwse-resize';
+
+    panel.classList.remove('jlp-maximized');
+
+    function onMouseMove(moveEvent) {
+      if (!isResizing) return;
+      // Arrastrar hacia la izquierda expande ancho (anclado a la derecha)
+      const dx = startX - moveEvent.clientX;
+      // Arrastrar hacia arriba expande alto (anclado abajo)
+      const dy = startY - moveEvent.clientY;
+
+      const newW = Math.max(360, Math.min(window.innerWidth - 40, startW + dx));
+      const newH = Math.max(240, Math.min(window.innerHeight - 100, startH + dy));
+
+      panel.style.width = newW + 'px';
+      panel.style.height = newH + 'px';
+    }
+
+    function onMouseUp() {
+      if (!isResizing) return;
+      isResizing = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      try {
+        localStorage.setItem('prqa-transcript-size', JSON.stringify({
+          width: panel.offsetWidth,
+          height: panel.offsetHeight
+        }));
+      } catch (_) {}
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  });
+}
+
 function toggleListening() {
   if (window._isAIProcessing || (window.speechSynthesis && window.speechSynthesis.speaking)) {
     showToast('⚠️ CIEL AI está respondiendo. Espera a que termine o presiona DETENER.', 'warning');
@@ -2863,6 +3474,8 @@ function toggleListening() {
   }
   if (window.PRQAVoice && typeof PRQAVoice.toggleListening === 'function') {
     PRQAVoice.toggleListening();
+  } else if (window.PRQAVoice && typeof PRQAVoice.toggleMic === 'function') {
+    PRQAVoice.toggleMic();
   } else if (typeof startListening === 'function') {
     startListening();
   }
@@ -3002,102 +3615,35 @@ Object.defineProperty(window, '_isAIProcessing', {
   configurable: true,
 });
 
-function toggleTranscriptPopup() {
-  const popup = document.getElementById('transcriptPopup');
-  if (!popup) return;
-  _transcriptOpen = !_transcriptOpen;
-  popup.classList.toggle('hidden', !_transcriptOpen);
-  const btn = document.getElementById('jtbTranscriptToggle');
-  if (btn) btn.classList.toggle('active', _transcriptOpen);
-  if (_transcriptOpen) {
-    const body = document.getElementById('jarvisLogBody');
-    if (body) body.scrollTop = body.scrollHeight;
-  }
-}
-
-function toggleTextInput() {
-  const bar = document.getElementById('textInputBar');
-  if (!bar) return;
-  _textInputOpen = !_textInputOpen;
-  bar.classList.toggle('hidden', !_textInputOpen);
-  if (_textInputOpen) {
-    setTimeout(() => {
-      const input = document.getElementById('tibInput');
-      if (input) input.focus();
-    }, 150);
-  }
-}
-
-function clearJarvisLog() {
-  const body = document.getElementById('jarvisLogBody');
-  if (body) {
-    body.innerHTML = `<div class="jlp-line jlp-system">
-      <span class="jlp-ts">${_jlpTs()}</span>
-      <span class="jlp-tag jlp-tag-sys">SYS</span>
-      <span class="jlp-text">Historial limpiado · CIEL AI en línea</span>
-    </div>`;
-  }
-}
-
-function _jlpTs() {
-  return new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-}
-
-// Formateador limpio para que las listas y párrafos no se junten en un bloque
-function _formatAIMessage(text) {
-  if (!text) return '';
-  let str = text.trim();
-
-  // Escapar HTML básico
-  let escaped = str.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // Convertir **negrita** en <strong> con color sutil (no cyan sobreexpuesto)
-  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text-primary);font-weight:700;">$1</strong>');
-
-  // Dividir en líneas y renderizar separadas
-  const lines = escaped.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
-  const formatted = lines.map(line => {
-    if (/^\d+\./.test(line)) {
-      // Ítem numerado
-      return `<div style="display:flex;gap:8px;margin:5px 0;line-height:1.5;">${line}</div>`;
-    }
-    if (/^[*\u2022\-]/.test(line)) {
-      // Bullet point
-      return `<div style="display:flex;gap:8px;margin:4px 0 4px 8px;line-height:1.5;">${line}</div>`;
-    }
-    return `<p style="margin:0 0 7px 0;line-height:1.55;">${line}</p>`;
-  }).join('');
-
-  return formatted;
-}
-
-// Texto de la última respuesta de la IA (para releer si se reactiva el audio)
-
-// Activa/desactiva visualmente el botón DETENER (siempre visible, pero disabled cuando no procesa)
+// Activa/desactiva visualmente el botón DETENER (en espera cuando la IA está inactiva, rojo cuando habla/procesa)
 function _setStopBtnActive(active) {
   const btn = document.getElementById('tpStopBtn');
   if (!btn) return;
+  const span = btn.querySelector('span');
   if (active) {
     btn.disabled = false;
-    btn.style.background = 'rgba(239,68,68,0.25)';
-    btn.style.color = '#fca5a5';
-    btn.style.border = '1px solid rgba(239,68,68,0.6)';
-    btn.style.cursor = 'pointer';
-    btn.style.opacity = '1';
-    btn.style.boxShadow = '0 0 12px rgba(239,68,68,0.3)';
+    btn.classList.add('is-active');
+    btn.classList.remove('is-idle');
+    if (span) span.textContent = 'DETENER';
+    btn.title = 'Detener respuesta de IA';
   } else {
-    btn.disabled = true;
-    btn.style.background = 'rgba(100,100,120,0.12)';
-    btn.style.color = 'rgba(180,180,200,0.3)';
-    btn.style.border = '1px solid rgba(180,180,200,0.15)';
-    btn.style.cursor = 'not-allowed';
-    btn.style.opacity = '0.5';
-    btn.style.boxShadow = 'none';
+    btn.disabled = false;
+    btn.classList.remove('is-active');
+    btn.classList.add('is-idle');
+    if (span) span.textContent = 'EN ESPERA';
+    btn.title = 'CIEL AI en espera (toca el orbe para hablar o escribe)';
   }
 }
 
 // Botón para detener la respuesta en curso y silenciar la voz
 function stopAI() {
+  if (!_isAIProcessing && !(window.speechSynthesis && window.speechSynthesis.speaking)) {
+    if (typeof showToast === 'function') {
+      showToast('ℹ️ CIEL AI está en espera. Toca el orbe central para hablar.', 'info');
+    }
+    return;
+  }
+
   if (_activeAbortController) {
     try { _activeAbortController.abort(); } catch (e) { }
     _activeAbortController = null;
@@ -3106,11 +3652,14 @@ function stopAI() {
     PRQAVoice.stop();
   }
   if (window.speechSynthesis) {
-    window.speechSynthesis.cancel();
+    try { window.speechSynthesis.cancel(); } catch (_) { }
   }
-  if (typeof stopSpeaking === 'function') {
-    stopSpeaking();
+  if (window._activeTypewriterTimer) {
+    clearInterval(window._activeTypewriterTimer);
+    window._activeTypewriterTimer = null;
   }
+  const typingEl = document.querySelector('.stream-typing');
+  if (typingEl) typingEl.classList.remove('stream-typing');
 
   _isAIProcessing = false;
 
@@ -3131,79 +3680,132 @@ function toggleTTS() {
   }
 }
 
-// _currentInterimLine declarado al inicio del archivo
-
-function appendOrUpdateUserInterim(text) {
-  const body = document.getElementById('jarvisLogBody') || document.getElementById('jarvisLogList');
-  if (!body || !text || !text.trim()) return;
-
-  if (!_currentInterimLine || !document.getElementById('jlpActiveInterim')) {
-    _currentInterimLine = document.createElement('div');
-    _currentInterimLine.className = 'jlp-line jlp-user';
-    _currentInterimLine.id = 'jlpActiveInterim';
-    body.appendChild(_currentInterimLine);
-  }
-
-  _currentInterimLine.innerHTML = `
-    <span class="jlp-ts">${_jlpTs()}</span>
-    <span class="jlp-tag jlp-tag-user">USR</span>
-    <span class="jlp-text">${text.replace(/</g, '&lt;')} <em style="font-size:0.65rem;color:#10b981;font-style:normal;">●</em></span>
-  `;
-  body.scrollTop = body.scrollHeight;
+function _jlpTs() {
+  const d = new Date();
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
-
-function finalizeUserInterim(text) {
-  const el = document.getElementById('jlpActiveInterim');
-  if (el) el.remove();
-  _currentInterimLine = null;
-}
-
-// _lastLogEntry declarado al inicio del archivo
 
 function _formatLogText(text) {
   if (!text) return '';
-  let str = text
+  let escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // Negrita
-  str = str.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Formato markdown bold
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-  // Viñetas con viñetas o guiones (•, ·, -, *)
-  str = str.replace(/^[•·\-\*]\s*(.+)$/gm, '<div class="jlp-bullet-item"><span class="jlp-bullet-dot">▪</span><span>$1</span></div>');
+  // Formato bullets
+  const lines = escaped.split('\n');
+  let inList = false;
+  let html = '';
 
-  // Listas numeradas (1., 2., etc)
-  str = str.replace(/^(\d+)\.\s*(.+)$/gm, '<div class="jlp-bullet-item"><span class="jlp-bullet-num">$1.</span><span>$2</span></div>');
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('• ')) {
+      if (!inList) {
+        html += '<ul style="margin:0.25rem 0; padding-left:1.2rem;">';
+        inList = true;
+      }
+      const itemText = trimmed.replace(/^[-*•]\s+/, '');
+      html += `<li style="margin-bottom:0.2rem;">${itemText}</li>`;
+    } else {
+      if (inList) {
+        html += '</ul>';
+        inList = false;
+      }
+      if (trimmed) {
+        html += `<p style="margin:0.2rem 0;">${trimmed}</p>`;
+      }
+    }
+  }
+  if (inList) html += '</ul>';
 
-  // Párrafos y saltos
-  str = str.replace(/\n\n+/g, '<div class="jlp-gap"></div>');
-  str = str.replace(/\n/g, '<br>');
+  return html || escaped;
+}
 
-  return str;
+let _userInterimEl = null;
+
+function appendOrUpdateUserInterim(transcript) {
+  const body = document.getElementById('jarvisLogList') || document.getElementById('jarvisLogBody');
+  if (!body) return;
+
+  const emptyState = document.getElementById('jlpEmptyState');
+  if (emptyState) emptyState.style.display = 'none';
+
+  if (!_userInterimEl) {
+    _userInterimEl = document.createElement('div');
+    _userInterimEl.className = 'jlp-line jlp-user jlp-interim';
+    _userInterimEl.id = 'jlpInterimLine';
+    _userInterimEl.innerHTML = `
+      <div class="jlp-line-meta">
+        <span class="jlp-tag jlp-tag-user">USR · DICTANDO</span>
+        <span class="jlp-ts">${_jlpTs()}</span>
+      </div>
+      <div class="jlp-text jlp-interim-text"></div>
+    `;
+    body.appendChild(_userInterimEl);
+  }
+
+  const textEl = _userInterimEl.querySelector('.jlp-interim-text');
+  if (textEl) {
+    textEl.textContent = transcript + '...';
+  }
+  body.scrollTop = body.scrollHeight;
+
+  // Abrir automáticamente la transcripción si está oculta
+  const panel = document.getElementById('jarvisLogPanel');
+  if (panel && panel.classList.contains('hidden')) {
+    panel.classList.remove('hidden');
+    _transcriptOpen = true;
+    const btn = document.getElementById('jtbTranscriptToggle');
+    if (btn) btn.classList.add('active');
+  }
+}
+
+function finalizeUserInterim() {
+  if (_userInterimEl) {
+    _userInterimEl.remove();
+    _userInterimEl = null;
+  }
+}
+
+function clearJarvisLog() {
+  const body = document.getElementById('jarvisLogList') || document.getElementById('jarvisLogBody');
+  if (!body) return;
+  body.innerHTML = '';
+  // Restaurar tarjeta de bienvenida / empty state
+  const emptyState = document.getElementById('jlpEmptyState');
+  if (emptyState) {
+    body.appendChild(emptyState);
+    emptyState.style.display = 'flex';
+  }
+  appendJarvisLog('system', 'Historial de transcripción limpiado.');
 }
 
 function appendJarvisLog(type, text) {
-  const body = document.getElementById('jarvisLogBody') || document.getElementById('jarvisLogList');
+  const body = document.getElementById('jarvisLogList') || document.getElementById('jarvisLogBody');
   if (!body || !text) return;
 
+  // Ocultar empty state
+  const emptyState = document.getElementById('jlpEmptyState');
+  if (emptyState) emptyState.style.display = 'none';
+
   const now = Date.now();
-  // Evitar duplicar exactamente el mismo mensaje consecutivo en menos de 1.5 segundos
   if (_lastLogEntry.type === type && _lastLogEntry.text === text && (now - _lastLogEntry.time) < 1500) {
     return;
   }
   _lastLogEntry = { type, text, time: now };
 
-  // Si había una línea interim, limpiarla
   if (type === 'user') {
     finalizeUserInterim();
   }
 
   const tagMap = {
-    user: { cls: 'jlp-user', tag: 'USR', tagCls: 'jlp-tag-user' },
-    ai: { cls: 'jlp-ai', tag: 'CIEL AI', tagCls: 'jlp-tag-ai' },
-    system: { cls: 'jlp-system', tag: 'SYS', tagCls: 'jlp-tag-sys' },
-    error: { cls: 'jlp-error', tag: 'ERR', tagCls: 'jlp-tag-err' },
+    user:   { cls: 'jlp-user',   tag: 'USR',     tagCls: 'jlp-tag-user' },
+    ai:     { cls: 'jlp-ai',     tag: 'CIEL AI', tagCls: 'jlp-tag-ai' },
+    system: { cls: 'jlp-system', tag: 'SYS',     tagCls: 'jlp-tag-sys' },
+    error:  { cls: 'jlp-error',  tag: 'ERR',     tagCls: 'jlp-tag-err' },
   };
 
   const m = tagMap[type] || tagMap.system;
@@ -3211,9 +3813,11 @@ function appendJarvisLog(type, text) {
   const line = document.createElement('div');
   line.className = `jlp-line ${m.cls}`;
   line.innerHTML = `
-    <span class="jlp-ts">${_jlpTs()}</span>
-    <span class="jlp-tag ${m.tagCls}">${m.tag}</span>
-    <span class="jlp-text">${_formatLogText(text)}</span>
+    <div class="jlp-line-meta">
+      <span class="jlp-tag ${m.tagCls}">${m.tag}</span>
+      <span class="jlp-ts">${_jlpTs()}</span>
+    </div>
+    <div class="jlp-text">${_formatLogText(text)}</div>
   `;
 
   body.appendChild(line);
@@ -3233,76 +3837,10 @@ function appendJarvisLog(type, text) {
 
 window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
 window.finalizeUserInterim = finalizeUserInterim;
+window.clearJarvisLog = clearJarvisLog;
+window.initTranscriptResize = initTranscriptResize;
+window.toggleMaximizeTranscript = toggleMaximizeTranscript;
 window.appendJarvisLog = appendJarvisLog;
-
-// Respuestas inmediatas (< 100ms) para comandos, dudas de navegación y conceptos clave
-function _getInstantResponse(query) {
-  const q = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-
-  // 1. Preguntas de ayuda general / Cómo funciona la app / No entiendo / Por dónde empezar / Guíame
-  if (
-    q.includes("como funciona") ||
-    q.includes("no entiendo") ||
-    q.includes("como se usa") ||
-    q.includes("por donde empiezo") ||
-    q.includes("por donde comienzo") ||
-    q.includes("explicame") ||
-    q.includes("ayuda") ||
-    q.includes("que hago") ||
-    q.includes("que es esto") ||
-    q.includes("de que trata") ||
-    q.includes("que puedes hacer") ||
-    q.includes("que sabes hacer") ||
-    q.includes("quien eres") ||
-    q.includes("instrucciones") ||
-    q.includes("guia")
-  ) {
-    return "¡Con gusto te explico cómo funciona **PRQA**! La plataforma te guía a través de un flujo de 4 pasos para asegurar la calidad de tu software:\n\n" +
-      "1️⃣ **Base de Conocimiento (Paso 1):** Sube tus documentos de requerimientos (PDF, Word o Excel como MTR/BRD). El sistema los indexa en ChromaDB para usarlos como contexto.\n" +
-      "2️⃣ **Generar Casos (Paso 2):** Elige los tipos de prueba (Funcionales, Negativos, Seguridad, etc.), escribe tu requerimiento y haz clic en **Generar** para obtener tu matriz Excel oficial en formato **EOPA DTR029C**.\n" +
-      "3️⃣ **Ejecutar Pruebas (Paso 3):** Revisa cada caso generado y registra si **CUMPLE** o **NO CUMPLE**, asignando la severidad si encuentras algún defecto.\n" +
-      "4️⃣ **Tiempos y Dashboard (Paso 4):** Mide la velocidad de ejecución con el cronómetro HUD integrado y monitorea los KPIs del ciclo de calidad en el Dashboard.\n\n" +
-      "💡 *¿Sobre cuál de estos pasos te gustaría que te oriente en detalle?*";
-  }
-
-  // 2. Saludo simple
-  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|que tal|saludos)[.!? ]*$/.test(q)) {
-    return "¡Hola! Soy **CIEL AI**, tu asistente de aseguramiento de calidad de Ciel Ingeniería S.A.S.\n\n¿En qué te puedo colaborar hoy? Puedes consultarme sobre tus requerimientos, pedirme ayuda para generar casos de prueba EOPA o pedirme que te guíe en el uso de la plataforma.";
-  }
-
-  // 3. Qué es PRQA
-  if (q.includes("que es prqa") || q.includes("para que sirve prqa")) {
-    return "**PRQA** es la plataforma local y privada de Calidad de Software para **Ciel Ingeniería S.A.S.** Te permite procesar documentos técnicos, generar matrices de prueba automáticas en formato estándar **EOPA DTR029C**, cronometrar tiempos y registrar ejecuciones con total soberanía y confidencialidad de datos.";
-  }
-
-  // 4. Módulo 1: Base de conocimiento
-  if (q.includes("base de conocimiento") || q.includes("cargar documento") || q.includes("subir documento") || q.includes("como indexar") || q.includes("subir archivo")) {
-    return "En el módulo **Base de Conocimiento** (Paso 1) puedes arrastrar o seleccionar archivos en formato PDF, Word o Excel (MTR, BRD o Plantillas).\nEl sistema fragmenta e indexa el contenido en la base de datos vectorial ChromaDB para alimentar a la IA al generar casos o responder preguntas.";
-  }
-
-  // 5. Módulo 2: Generador de casos
-  if (q.includes("como genero casos") || q.includes("generar casos") || q.includes("crear casos") || q.includes("matriz de prueba") || q.includes("eopa") || q.includes("dtr029c")) {
-    return "Para generar casos de prueba:\n1. Ve a **Generar Casos** (Paso 2).\n2. Selecciona los tipos de prueba deseados (Funcionales, Negativos, Seguridad, Integración, UI/UX o Carga).\n3. Escribe o pega el requerimiento funcional.\n4. Define la cantidad de casos y presiona **Generar Casos de Prueba** para descargar tu matriz Excel DTR029C.";
-  }
-
-  // 6. Módulo 3: Ejecución de pruebas
-  if (q.includes("ejecutar pruebas") || q.includes("cumple") || q.includes("no cumple") || q.includes("registrar prueba") || q.includes("marcar prueba")) {
-    return "En **Ejecutar Pruebas** (Paso 3) puedes ver la lista de casos de prueba del proyecto activo.\nPara cada uno puedes marcar **CUMPLE** o **NO CUMPLE**.\nSi marcas *NO CUMPLE*, puedes clasificar la severidad (Crítica, Alta, Media, Baja) y detallar el incidente para el Dashboard.";
-  }
-
-  // 7. Módulo 4: Tiempos / Cronómetro
-  if (q.includes("tiempo") || q.includes("cronometro") || q.includes("productividad") || q.includes("temporizador") || q.includes("medir tiempo")) {
-    return "En **Tiempos de Ejecución** (Paso 4) cuentas con un cronómetro digital interactivo para medir el tiempo real que tardas en probar cada caso, registrando estadísticas de productividad y promedios por módulo.";
-  }
-
-  // 8. Módulo 5: Dashboard
-  if (q.includes("dashboard") || q.includes("metricas") || q.includes("indicadores") || q.includes("kpi") || q.includes("reporte")) {
-    return "El **Dashboard** resume los indicadores del ciclo QA en tiempo real: Total de Casos, Tasa de Éxito (% de cumplimiento), distribución por tipo de prueba y reporte de defectos por severidad.";
-  }
-
-  // Si no coincide con las respuestas inmediatas, pasa al modelo RAG en backend
-  return null;
-}
 
 async function queryCielAI(text) {
   if (!text || !text.trim()) return;
@@ -3311,7 +3849,7 @@ async function queryCielAI(text) {
   // 1. Bloqueo estricto de concurrencia: 1 consulta a la vez
   if (_isAIProcessing) {
     if (typeof showToast === 'function') {
-      showToast('⚠️ CIEL AI está ocupada. Presiona DETENER para interrumpir.', 'warning');
+      showToast('⚠️ CIEL AI está procesando una consulta. Espera un momento o presiona DETENER.', 'warning');
     }
     return;
   }
@@ -3319,10 +3857,15 @@ async function queryCielAI(text) {
   _isAIProcessing = true;
   _activeAbortController = new AbortController();
 
+  if (window.PRQAVoice && typeof PRQAVoice.abortListening === 'function') {
+    PRQAVoice.abortListening();
+  }
+  finalizeUserInterim();
+
   // Activar botón DETENER en la barra
   _setStopBtnActive(true);
 
-  // 2. Registrar consulta del usuario
+  // 2. Registrar consulta del usuario en el log
   appendJarvisLog('user', query);
 
   function _finishAI() {
@@ -3332,29 +3875,15 @@ async function queryCielAI(text) {
     if (window.PRQAVoice) PRQAVoice.setOrbState('idle');
   }
 
-  // 3. Respuesta instantánea para navegación y preguntas comunes
-  const instantAnswer = _getInstantResponse(query);
-  if (instantAnswer) {
-    _lastAIResponse = instantAnswer;
-    window._lastAIResponse = instantAnswer;
-    appendJarvisLog('ai', instantAnswer);
+  let fullResponse = '';
+  let streamLine = null;
+  let streamTextSpan = null;
+  let hasReceivedFirstChunk = false;
 
-    if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
-      PRQAVoice.setOrbState('speaking');
-      PRQAVoice.speak(instantAnswer, {
-        onEnd: _finishAI
-      });
-    } else {
-      _finishAI();
-    }
-    return;
-  }
-
-  // 4. Consulta profunda con motor local
   if (window.PRQAVoice) PRQAVoice.setOrbState('processing');
 
   try {
-    const res = await fetch('/api/chat', {
+    const res = await fetch('/api/chat/stream', {
       method: 'POST',
       signal: _activeAbortController.signal,
       headers: { 'Content-Type': 'application/json' },
@@ -3367,52 +3896,190 @@ async function queryCielAI(text) {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      const errMsg = err.detail || 'No se pudo procesar la solicitud.';
+      const errMsg = err.detail || 'Error en la respuesta del motor de IA local.';
       appendJarvisLog('error', errMsg);
-      if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
-        PRQAVoice.setOrbState('speaking');
-        PRQAVoice.speak('Error: ' + errMsg, {
-          onEnd: _finishAI
-        });
-      } else {
-        _finishAI();
-      }
+      _finishAI();
       return;
     }
 
-    const data = await res.json();
-    if (data && data.response) {
-      _lastAIResponse = data.response;
-      window._lastAIResponse = data.response;
-      appendJarvisLog('ai', data.response);
-
-      if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
-        PRQAVoice.setOrbState('speaking');
-        PRQAVoice.speak(data.response, {
-          onEnd: _finishAI
-        });
-      } else {
-        _finishAI();
+    // Abrir panel de transcripción si está cerrado
+    if (!_transcriptOpen) {
+      const panel = document.getElementById('jarvisLogPanel');
+      if (panel) {
+        panel.classList.remove('hidden');
+        _transcriptOpen = true;
+        const btn = document.getElementById('jtbTranscriptToggle');
+        if (btn) btn.classList.add('active');
       }
+    }
+
+    // Crear línea de respuesta estructurada en el panel
+    const body = document.getElementById('jarvisLogList') || document.getElementById('jarvisLogBody');
+    if (body) {
+      streamLine = document.createElement('div');
+      streamLine.className = 'jlp-line jlp-ai';
+      streamLine.innerHTML = `
+        <div class="jlp-line-meta">
+          <span class="jlp-tag jlp-tag-ai">CIEL AI</span>
+          <span class="jlp-ts">${_jlpTs()}</span>
+        </div>
+        <div class="jlp-text stream-typing"><span style="opacity:0.6; font-style:italic;">Pensando respuesta...</span></div>
+      `;
+      body.appendChild(streamLine);
+      body.scrollTop = body.scrollHeight;
+      streamTextSpan = streamLine.querySelector('.jlp-text');
+    }
+
+    // Leer el stream SSE de Ollama
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const textChunk = decoder.decode(value, { stream: true });
+      const lines = textChunk.split('\n');
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) {
+            appendJarvisLog('error', parsed.error);
+            if (streamLine) streamLine.remove();
+            _finishAI();
+            return;
+          }
+          if (parsed.chunk) {
+            if (!hasReceivedFirstChunk) {
+              hasReceivedFirstChunk = true;
+              if (streamTextSpan) streamTextSpan.textContent = '';
+            }
+            fullResponse += parsed.chunk;
+          }
+        } catch (_) {}
+      }
+    }
+
+    _lastAIResponse = fullResponse;
+    window._lastAIResponse = fullResponse;
+
+    const ttsActive = window.PRQAVoice && PRQAVoice.isTTSEnabled();
+
+    if (ttsActive && fullResponse.trim().length > 0) {
+      // Sincronización perfecta: habla de forma consecutiva y el texto se escribe conforme habla
+      if (window.PRQAVoice) PRQAVoice.setOrbState('speaking');
+
+      let currentTypedIndex = 0;
+      const totalLen = fullResponse.length;
+      if (window._activeTypewriterTimer) clearInterval(window._activeTypewriterTimer);
+
+      PRQAVoice.speak(fullResponse, {
+        onStart: (cleanText) => {
+          if (streamTextSpan) {
+            streamTextSpan.classList.add('stream-typing');
+            streamTextSpan.textContent = '';
+          }
+
+          // Estimamos tiempo total de habla para sincronizar el tipeo con el audio
+          // ~13 caracteres por segundo a ritmo normal en español
+          const estimatedDurationMs = Math.max(1500, (cleanText.length / 13) * 1000);
+          const intervalMs = 45;
+          const charsPerTick = Math.max(1, (totalLen / (estimatedDurationMs / intervalMs)));
+
+          window._activeTypewriterTimer = setInterval(() => {
+            if (currentTypedIndex < totalLen) {
+              currentTypedIndex = Math.min(totalLen, currentTypedIndex + charsPerTick);
+              if (streamTextSpan) {
+                streamTextSpan.textContent = fullResponse.substring(0, Math.floor(currentTypedIndex));
+                if (body) body.scrollTop = body.scrollHeight;
+              }
+            }
+          }, intervalMs);
+        },
+        onBoundary: (e, cleanText) => {
+          // Si el navegador emite eventos de límite de palabra, sincronizar de forma exacta
+          if (e.charIndex !== undefined && cleanText && cleanText.length > 0) {
+            const progressRatio = Math.min(1, (e.charIndex + (e.charLength || 4)) / cleanText.length);
+            const targetChar = Math.floor(progressRatio * totalLen);
+            if (targetChar > currentTypedIndex) {
+              currentTypedIndex = targetChar;
+              if (streamTextSpan) {
+                streamTextSpan.textContent = fullResponse.substring(0, currentTypedIndex);
+                if (body) body.scrollTop = body.scrollHeight;
+              }
+            }
+          }
+        },
+        onEnd: () => {
+          if (window._activeTypewriterTimer) {
+            clearInterval(window._activeTypewriterTimer);
+            window._activeTypewriterTimer = null;
+          }
+          if (streamTextSpan) {
+            streamTextSpan.classList.remove('stream-typing');
+            streamTextSpan.innerHTML = _formatLogText(fullResponse);
+            if (body) body.scrollTop = body.scrollHeight;
+          }
+          _finishAI();
+        }
+      });
     } else {
+      // Si la voz está desactivada, mostrar el resultado completo formateado de inmediato
+      if (streamTextSpan) {
+        streamTextSpan.classList.remove('stream-typing');
+        if (fullResponse) {
+          streamTextSpan.innerHTML = _formatLogText(fullResponse);
+        } else {
+          streamTextSpan.textContent = '(Sin respuesta de la IA)';
+        }
+      }
+      if (body) body.scrollTop = body.scrollHeight;
       _finishAI();
     }
+
   } catch (e) {
     if (e.name === 'AbortError') {
-      console.log('[CIEL AI] Consulta detenida por el usuario');
+      console.log('[CIEL AI] Consulta cancelada por el usuario');
       _finishAI();
     } else {
       console.error('[PRQA AI Error]', e);
       appendJarvisLog('error', 'Error de conexión con el motor de IA local.');
-      if (window.PRQAVoice && PRQAVoice.isTTSEnabled()) {
-        PRQAVoice.setOrbState('speaking');
-        PRQAVoice.speak('No pude conectar con el servidor de inteligencia artificial.', {
-          onEnd: _finishAI
-        });
-      } else {
-        _finishAI();
-      }
+      _finishAI();
     }
+  }
+}
+
+function toggleTextInput() {
+  const bar = document.getElementById('textInputBar');
+  const btn = document.getElementById('tibToggleBtn');
+  if (!bar) return;
+
+  const isHidden = bar.classList.contains('hidden');
+  if (isHidden) {
+    // Posicionar dinámicamente según el estado del panel de transcripción
+    const panel = document.getElementById('jarvisLogPanel');
+    if (panel && !panel.classList.contains('hidden')) {
+      const panelWidth = panel.offsetWidth || 540;
+      bar.style.right = (panelWidth + 35) + 'px';
+    } else {
+      bar.style.right = '25px';
+    }
+    bar.classList.remove('hidden');
+    if (btn) btn.classList.add('active');
+    const input = document.getElementById('tibInput');
+    if (input) {
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 50);
+    }
+  } else {
+    bar.classList.add('hidden');
+    if (btn) btn.classList.remove('active');
   }
 }
 
@@ -3446,4 +4113,11 @@ window.openExecutionModal = openExecutionModal;
 window.closeExecutionModal = closeExecutionModal;
 window.selectResult = selectResult;
 window.saveExecution = saveExecution;
+window._setStopBtnActive = _setStopBtnActive;
 
+// Inicializar botón DETENER en estado inactivo / en espera
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => _setStopBtnActive(false));
+} else {
+  _setStopBtnActive(false);
+}

@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@400;600;700;900&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css?v=4.1.7" />
+  <link rel="stylesheet" href="/static/css/style.css?v=5.4.0" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>" />
 </head>
 
@@ -281,6 +281,9 @@
               </div>
             </div>
 
+            <!-- Contenedor de progreso de subida de documentos (sin ocultar los existentes) -->
+            <div id="docUploadProgressContainer" class="hidden" style="margin-bottom:0.75rem;"></div>
+
             <!-- Tabla compacta de documentos -->
             <div class="kb-table-wrap">
               <table class="kb-table">
@@ -312,7 +315,7 @@
            MÓDULO 2: GENERAR CASOS DE PRUEBA
       ════════════════════════════════════════════ -->
       <section class="module" id="moduleGenerate">
-        <!-- Banner de Pasos de Flujo -->
+        <!-- Banner de Indicaciones del Flujo (Compacto y Elegante) -->
         <div class="gen-flow-banner">
           <div class="gen-flow-step">
             <span class="gen-flow-num">1</span>
@@ -330,141 +333,158 @@
           </div>
         </div>
 
-        <!-- Título y Subtítulo de Módulo -->
-        <div class="module-header">
-          <h1 class="module-title">Generar Casos de Prueba</h1>
-          <p class="module-subtitle">La IA analiza tu requerimiento y genera casos listos para ejecutar</p>
+        <!-- Título y Subtítulo de Módulo Compacto -->
+        <div class="module-header" style="margin-bottom:0.35rem;">
+          <h1 class="module-title" style="font-size:1.05rem;">Generar Casos de Prueba</h1>
+          <p class="module-subtitle" style="font-size:0.72rem;margin-top:0.1rem;">La IA analiza tu requerimiento y genera casos listos para ejecutar</p>
         </div>
 
-        <div class="generator-grid">
-          <!-- Columna Izquierda: Formulario de Configuración -->
-          <div class="panel gen-config-panel">
-            <h2 class="panel-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-              </svg>
-              <span>CONFIGURACIÓN</span>
-            </h2>
+        <!-- Barra de Pestañas del Generador -->
+        <div class="gen-tabs-bar" id="genTabsBar" style="margin:0.25rem 0 0.6rem 0;padding-bottom:0.4rem;">
+          <button type="button" class="gen-tab-btn active" id="genTabBtnConfig" onclick="switchGenTab('config')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>1. Formulario y Configuración</span>
+          </button>
+          <button type="button" class="gen-tab-btn" id="genTabBtnResults" onclick="switchGenTab('results')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span>2. Matrices y Casos Generados</span>
+            <span class="gen-tab-badge" id="genTabBadge">0</span>
+          </button>
+        </div>
 
-            <div class="form-group">
-              <label class="form-label" for="projectName">Proyecto</label>
-              <input type="text" id="projectName" class="form-input" placeholder="Nombre del proyecto" value="Proyectos" />
-            </div>
+        <div class="gen-tab-container">
+          <!-- Pestaña 1: Formulario de Configuración (2 Columnas Equilibradas y Sin Scroll) -->
+          <div class="gen-tab-view active" id="genTabContentConfig">
+            <div class="panel gen-config-panel gen-panel-tabbed">
+              <input type="hidden" id="projectName" value="" />
 
-            <div class="form-group">
-              <label class="form-label">Documentos de Referencia de la Base de Conocimiento (Opcional)</label>
-              <div class="doc-multiselect-wrap" id="docMultiSelectWrap">
-                <button type="button" class="doc-multiselect-btn" id="docMultiSelectBtn" onclick="toggleDocMultiSelectDropdown(event)">
-                  <span id="docMultiSelectLabel">-- Seleccionar documentos indexados (0 seleccionados) --</span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                  </svg>
-                </button>
-                <div class="doc-multiselect-dropdown hidden" id="docMultiSelectDropdown">
-                  <div class="doc-select-header">
-                    <label class="doc-select-all-label">
-                      <input type="checkbox" id="selectAllDocsCheckbox" onchange="toggleSelectAllDocs(this.checked)" />
-                      <span>Seleccionar todos los documentos del proyecto</span>
-                    </label>
+              <div class="gen-form-grid-2col">
+                <!-- Columna Izquierda: Parámetros del Requerimiento -->
+                <div class="gen-form-col-left">
+                  <!-- Documentos de Referencia -->
+                  <div class="form-group" style="margin-bottom:0.45rem;">
+                    <label class="form-label" style="font-size:0.72rem;margin-bottom:0.25rem;">Documentos de Referencia (Base de Conocimiento)</label>
+                    <div class="doc-multiselect-wrap" id="docMultiSelectWrap">
+                      <button type="button" class="doc-multiselect-btn" id="docMultiSelectBtn" onclick="toggleDocMultiSelectDropdown(event)" style="min-height:36px;padding:0.45rem 0.75rem;">
+                        <span id="docMultiSelectLabel">-- Seleccionar documentos indexados (0 seleccionados) --</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                      </button>
+                      <div class="doc-multiselect-dropdown hidden" id="docMultiSelectDropdown">
+                        <div class="doc-select-header">
+                          <label class="doc-select-all-label">
+                            <input type="checkbox" id="selectAllDocsCheckbox" onchange="toggleSelectAllDocs(this.checked)" />
+                            <span>Seleccionar todos los documentos del proyecto</span>
+                          </label>
+                        </div>
+                        <div class="doc-checkbox-list" id="docCheckboxList"></div>
+                      </div>
+                      <div class="doc-selected-chips" id="docSelectedChips" style="margin-top:0.25rem;"></div>
+                    </div>
                   </div>
-                  <div class="doc-checkbox-list" id="docCheckboxList">
-                    <!-- Se llena dinámicamente desde loadDocumentsForGenerator() -->
+
+                  <!-- Módulo y Cantidad -->
+                  <div style="display:grid;grid-template-columns:1fr 95px;gap:0.6rem;margin-bottom:0.45rem;">
+                    <div class="form-group" style="margin-bottom:0;">
+                      <label class="form-label" for="moduleName" style="font-size:0.72rem;margin-bottom:0.25rem;">Módulo / Funcionalidad (Opcional)</label>
+                      <input type="text" id="moduleName" class="form-input" placeholder="ej. Autenticación, Carrito" value="" style="min-height:36px;padding:0.45rem 0.75rem;font-size:0.8rem;" />
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                      <label class="form-label" for="numCases" style="font-size:0.72rem;margin-bottom:0.25rem;">Cantidad</label>
+                      <input type="number" id="numCases" class="form-input" min="1" max="30" value="5" placeholder="5" style="min-height:36px;padding:0.45rem 0.5rem;font-size:0.8rem;" />
+                    </div>
+                  </div>
+
+                  <!-- Tipos de Prueba -->
+                  <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label" style="font-size:0.72rem;margin-bottom:0.25rem;">Tipos de Prueba</label>
+                    <div class="doc-multiselect-wrap" id="customTestTypesSelect">
+                      <button type="button" class="doc-multiselect-btn" id="testTypesBtn" onclick="toggleTestTypesDropdown()" style="min-height:36px;padding:0.45rem 0.75rem;font-size:0.8rem;">
+                        <span id="multiselectPlaceholder">3 tipo(s) seleccionado(s)</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                      </button>
+                      <div class="doc-multiselect-dropdown hidden" id="testTypesDropdown">
+                        <div class="doc-checkbox-list">
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="FUNCIONALES" data-label="Funcionales / Negocio" checked onchange="updateTestTypeChips()" />
+                            <span>Funcionales / Negocio</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="CASOS NEGATIVOS" data-label="Casos Negativos / Bordes" checked onchange="updateTestTypeChips()" />
+                            <span>Casos Negativos / Bordes</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="SEGURIDAD" data-label="Seguridad / Ciberseguridad" checked onchange="updateTestTypeChips()" />
+                            <span>Seguridad / Ciberseguridad</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="INTEGRACION" data-label="Integración" onchange="updateTestTypeChips()" />
+                            <span>Integración</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="NO FUNCIONALES" data-label="No Funcionales" onchange="updateTestTypeChips()" />
+                            <span>No Funcionales</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="CARGA" data-label="Carga" onchange="updateTestTypeChips()" />
+                            <span>Carga</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="ESTRESS" data-label="Estrés" onchange="updateTestTypeChips()" />
+                            <span>Estrés</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="COMPATIBILIDAD" data-label="Compatibilidad" onchange="updateTestTypeChips()" />
+                            <span>Compatibilidad</span>
+                          </label>
+                          <label class="doc-checkbox-item">
+                            <input type="checkbox" value="RESILIENCIA" data-label="Resiliencia" onchange="updateTestTypeChips()" />
+                            <span>Resiliencia</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Chips fuera del wrapper para no afectar la posición del dropdown -->
+                    <div class="test-chips-container" id="selectedTestTypeChips" style="margin-top:0.35rem;gap:0.3rem;"></div>
                   </div>
                 </div>
-                <!-- Chips de documentos seleccionados -->
-                <div class="doc-selected-chips" id="docSelectedChips"></div>
-              </div>
-            </div>
 
-            <!-- Fila compacta: Módulo + Cantidad de casos -->
-            <div class="gen-form-row">
-              <div class="form-group flex-1">
-                <label class="form-label" for="moduleName">Módulo / Funcionalidad (Opcional)</label>
-                <input type="text" id="moduleName" class="form-input" placeholder="ej. Autenticación, Carrito" value="" />
-              </div>
-              <div class="form-group" style="width: 110px; flex-shrink: 0;">
-                <label class="form-label" for="numCases">Cantidad</label>
-                <input type="number" id="numCases" class="form-input" min="1" max="30" value="5" placeholder="5" />
-              </div>
-            </div>
+                <!-- Columna Derecha: Requerimiento + Botón de Generar -->
+                <div class="gen-form-col-right">
+                  <div class="form-group" style="margin-bottom:0;display:flex;flex-direction:column;">
+                    <label class="form-label" for="promptInput" style="font-size:0.72rem;margin-bottom:0.25rem;">Requerimiento o Criterios de Aceptación</label>
+                    <textarea id="promptInput" class="form-textarea" style="height:135px;min-height:120px;padding:0.6rem 0.75rem;font-size:0.82rem;line-height:1.4;"
+                      placeholder="Describe la funcionalidad a probar, flujos alternos o pega criterios de aceptación..."></textarea>
+                  </div>
 
-            <div class="form-group">
-              <label class="form-label">Tipos de Prueba (Selecciona para incluir)</label>
-              <div class="doc-multiselect-wrap" id="customTestTypesSelect">
-                <button type="button" class="doc-multiselect-btn" id="testTypesBtn" onclick="toggleTestTypesDropdown()">
-                  <span id="multiselectPlaceholder">3 tipo(s) de prueba seleccionado(s)</span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                  </svg>
-                </button>
-                <div class="doc-multiselect-dropdown hidden" id="testTypesDropdown">
-                  <div class="doc-checkbox-list">
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="FUNCIONALES" data-label="Funcionales / Negocio" checked onchange="updateTestTypeChips()" />
-                      <span>Funcionales / Negocio</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="CASOS NEGATIVOS" data-label="Casos Negativos / Bordes" checked onchange="updateTestTypeChips()" />
-                      <span>Casos Negativos / Bordes</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="SEGURIDAD" data-label="Seguridad / Ciberseguridad" checked onchange="updateTestTypeChips()" />
-                      <span>Seguridad / Ciberseguridad</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="INTEGRACION" data-label="Integración" onchange="updateTestTypeChips()" />
-                      <span>Integración</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="NO FUNCIONALES" data-label="No Funcionales" onchange="updateTestTypeChips()" />
-                      <span>No Funcionales</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="CARGA" data-label="Carga" onchange="updateTestTypeChips()" />
-                      <span>Carga</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="ESTRESS" data-label="Estrés" onchange="updateTestTypeChips()" />
-                      <span>Estrés</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="COMPATIBILIDAD" data-label="Compatibilidad" onchange="updateTestTypeChips()" />
-                      <span>Compatibilidad</span>
-                    </label>
-                    <label class="doc-checkbox-item">
-                      <input type="checkbox" value="RESILIENCIA" data-label="Resiliencia" onchange="updateTestTypeChips()" />
-                      <span>Resiliencia</span>
-                    </label>
+                  <button class="btn-primary btn-full" id="generateBtn" onclick="generateTestCases()" style="padding:0.65rem 1.25rem;font-size:0.86rem;gap:0.5rem;margin-top:0.45rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                    <span>Generar Matriz EOPA con IA</span>
+                  </button>
+
+                  <div class="generator-loading hidden" id="generatorLoading">
+                    <div class="loading-spinner"></div>
+                    <p>Consultando base de conocimiento y generando casos de prueba...</p>
+                    <span>Esto puede tardar entre 20 y 45 segundos según el modelo</span>
                   </div>
                 </div>
-                <!-- Chips de tipos seleccionados -->
-                <div class="test-chips-container" id="selectedTestTypeChips"></div>
               </div>
-            </div>
-
-            <div class="form-group flex-grow-group">
-              <label class="form-label" for="promptInput">Requerimiento o Criterios de Aceptación</label>
-              <textarea id="promptInput" class="form-textarea"
-                placeholder="Describe la funcionalidad a probar, flujos alternos o pega criterios de aceptación..."></textarea>
-            </div>
-
-            <button class="btn-primary btn-full" id="generateBtn" onclick="generateTestCases()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-              </svg>
-              <span>Generar Matriz EOPA con IA</span>
-            </button>
-
-            <div class="generator-loading hidden" id="generatorLoading">
-              <div class="loading-spinner"></div>
-              <p>Consultando base de conocimiento y generando casos de prueba...</p>
-              <span>Esto puede tardar entre 20 y 45 segundos según el modelo</span>
             </div>
           </div>
 
-          <!-- Columna Derecha: Matrices Generadas -->
-          <div class="panel gen-results-panel">
+          <!-- Pestaña 2: Matrices y Casos Generados (A Ancho Completo) -->
+          <div class="gen-tab-view" id="genTabContentResults" style="display: none;">
+            <div class="panel gen-results-panel gen-panel-tabbed">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title" style="margin-bottom:0.15rem;">
@@ -473,7 +493,7 @@
                   </svg>
                   Matrices Excel Generadas
                 </h2>
-                <p style="font-size:0.75rem;color:var(--text-muted);">Historial de exportaciones EOPA del proyecto</p>
+                <p style="font-size:0.75rem;color:var(--text-muted);">Historial de exportaciones EOPA con descarga directa y casos técnicos</p>
               </div>
               <span class="badge" id="caseCountBadge">0</span>
             </div>
@@ -484,10 +504,11 @@
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                   <polyline points="14 2 14 8 20 8"/>
                 </svg>
-                <p>Sin archivos generados</p>
+                <p>Sin matrices generadas</p>
                 <span>Genera casos de prueba a la izquierda para crear tu primera matriz Excel EOPA</span>
               </div>
-            </div>
+          </div>
+        </div>
           </div>
         </div>
       </section>
@@ -501,7 +522,7 @@
           <!-- Vista 1: Lista de matrices Excel (por defecto) -->
           <div id="execMatrixListView">
             <!-- KPI chips globales -->
-            <div class="exec-kpi-row">
+            <div class="exec-kpi-row" id="execKpiRow">
               <span class="exec-kpi-chip" id="execGlobalKpiTotal">0 <em>Total Casos</em></span>
               <span class="exec-kpi-chip green" id="execGlobalKpiPass">0 <em>Cumple</em></span>
               <span class="exec-kpi-chip red" id="execGlobalKpiFail">0 <em>No Cumple</em></span>
@@ -509,7 +530,7 @@
             </div>
 
             <!-- Subtítulo -->
-            <p style="font-size:0.78rem;color:var(--text-muted);margin:0.25rem 0 0.85rem;">
+            <p id="execSubtitle" style="font-size:0.78rem;color:var(--text-muted);margin:0.25rem 0 0.85rem;">
               Selecciona una Matriz Excel para ejecutar y registrar sus casos de prueba.
             </p>
 
@@ -606,62 +627,40 @@
             </h1>
             <p class="timer-main-subtitle">Mide, registra y analiza el tiempo real de cada caso de prueba por matriz Excel</p>
           </div>
-          <button class="btn-primary" onclick="exportTimedExcel()" style="gap:0.5rem;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <button class="btn-ghost" onclick="exportTimedExcel()" style="gap:0.5rem;font-weight:600;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--accent-primary);">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
             <span>Descargar Excel con Tiempos</span>
           </button>
         </div>
 
-        <!-- Fila de 5 KPIs Estadísticos -->
-        <div class="timer-kpi-grid">
-          <div class="timer-kpi-card">
-            <span class="timer-kpi-label">EJECUTADOS</span>
-            <span class="timer-kpi-val" id="timerKpiCount">0</span>
-          </div>
-          <div class="timer-kpi-card">
-            <span class="timer-kpi-label">x̄ PROMEDIO</span>
-            <span class="timer-kpi-val" id="timerKpiAvg">0s</span>
-          </div>
-          <div class="timer-kpi-card">
-            <span class="timer-kpi-label">∑ TOTAL</span>
-            <span class="timer-kpi-val" id="timerKpiTotal">0s</span>
-          </div>
-          <div class="timer-kpi-card">
-            <span class="timer-kpi-label">⚡ MÍNIMO</span>
-            <span class="timer-kpi-val" id="timerKpiMin">0s</span>
-          </div>
-          <div class="timer-kpi-card">
-            <span class="timer-kpi-label">🔥 MÁXIMO</span>
-            <span class="timer-kpi-val" id="timerKpiMax">0s</span>
-          </div>
-        </div>
-
-        <!-- Cuadrícula Principal: Cronómetro + Analíticas -->
+        <!-- Cuadrícula Principal: Cronómetro + Analíticas Proporcionadas -->
         <div class="timer-main-grid">
           <!-- Columna Izquierda: Controles y Cronómetro -->
           <div class="panel timer-controls-card">
-            <div class="form-group">
-              <label class="form-label" for="timerMatrixSelect">Matriz de Pruebas (Archivo Excel)</label>
-              <select id="timerMatrixSelect" class="form-input" onchange="onTimerMatrixSelected()">
-                <option value="">-- Todas las matrices de prueba --</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
-                <label class="form-label" for="timerCaseSelect" style="margin:0;">Caso de Prueba</label>
-                <span id="timerAvailableCasesCount" style="font-size:0.68rem;color:var(--text-muted);">0 casos disponibles</span>
+            <div style="display:flex;flex-direction:column;gap:0.75rem;">
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="timerMatrixSelect">Matriz de Pruebas (Archivo Excel)</label>
+                <select id="timerMatrixSelect" class="form-input" onchange="onTimerMatrixSelected()">
+                  <option value="">-- Todas las matrices de prueba --</option>
+                </select>
               </div>
-              <select id="timerCaseSelect" class="form-input">
-                <option value="">-- Selecciona un caso de prueba --</option>
-              </select>
-            </div>
 
-            <div class="form-group">
-              <label class="form-label" for="timerTesterInput">Tester</label>
-              <input type="text" id="timerTesterInput" class="form-input" placeholder="Nombre del tester (opcional)" />
+              <div class="form-group" style="margin-bottom:0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                  <label class="form-label" for="timerCaseSelect" style="margin:0;">Caso de Prueba</label>
+                  <span id="timerAvailableCasesCount" style="font-size:0.68rem;color:var(--text-muted);">0 casos disponibles</span>
+                </div>
+                <select id="timerCaseSelect" class="form-input">
+                  <option value="">-- Selecciona un caso de prueba --</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="timerTesterInput">Tester</label>
+                <input type="text" id="timerTesterInput" class="form-input" placeholder="Nombre del tester (opcional)" />
+              </div>
             </div>
 
             <!-- Display HUD del Cronómetro -->
@@ -684,29 +683,72 @@
             </div>
           </div>
 
-          <!-- Columna Derecha: Analíticas Visuales (Módulos y Tipos) -->
+          <!-- Columna Derecha: Métricas y Distribuciones Equilibradas -->
           <div class="timer-analytics-col">
-            <!-- Tarjeta 1: Tiempo Promedio por Módulo -->
-            <div class="panel timer-module-card">
-              <h3 class="timer-card-title">TIEMPO PROMEDIO POR MÓDULO / RF</h3>
-              <div class="timer-module-bars-list" id="timerModuleBarsList">
-                <div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;">Ejecuta casos cronometrados para visualizar métricas por módulo.</div>
+            <!-- Fila de 4 KPIs Estadísticos Integrados -->
+            <div class="timer-kpi-grid">
+              <div class="timer-kpi-card">
+                <span class="timer-kpi-label">Casos Cronometrados</span>
+                <span class="timer-kpi-val" id="timerKpiCount">0</span>
+              </div>
+              <div class="timer-kpi-card">
+                <span class="timer-kpi-label">Tiempo Promedio</span>
+                <span class="timer-kpi-val" id="timerKpiAvg">0s</span>
+              </div>
+              <div class="timer-kpi-card">
+                <span class="timer-kpi-label">Tiempo Total</span>
+                <span class="timer-kpi-val" id="timerKpiTotal">0s</span>
+              </div>
+              <div class="timer-kpi-card">
+                <span class="timer-kpi-label">Rango Registrado</span>
+                <span class="timer-kpi-val" style="font-size:1.05rem;display:flex;gap:0.35rem;align-items:baseline;justify-content:center;">
+                  <span id="timerKpiMin">0s</span> <span style="font-size:0.68rem;color:var(--text-muted);font-weight:500;">mín</span>
+                  <span style="color:var(--text-muted);font-size:0.75rem;">·</span>
+                  <span id="timerKpiMax">0s</span> <span style="font-size:0.68rem;color:var(--text-muted);font-weight:500;">máx</span>
+                </span>
               </div>
             </div>
 
-            <!-- Tarjeta 2: Promedio por Tipo de Prueba -->
-            <div class="panel timer-type-card">
-              <h3 class="timer-card-title">PROMEDIO POR TIPO DE PRUEBA</h3>
-              <div class="timer-type-grid" id="timerTypeGrid">
-                <div style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;grid-column:1/-1;">Sin datos registrados aún.</div>
+            <!-- Fila de 2 Columnas de Métricas Visuales -->
+            <div class="timer-charts-row">
+              <!-- Sub-tarjeta 1: Tiempo Promedio por Módulo -->
+              <div class="panel timer-module-card">
+                <div class="timer-card-header">
+                  <h3 class="timer-card-title">Tiempo Promedio por Módulo</h3>
+                </div>
+                <div class="timer-module-bars-list" id="timerModuleBarsList">
+                  <div class="timer-empty-inline">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="20" height="20" style="opacity:0.4;margin-bottom:0.35rem;">
+                      <rect x="3" y="12" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/>
+                    </svg>
+                    <span>Sin métricas registradas por módulo aún</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sub-tarjeta 2: Distribución por Tipo de Prueba -->
+              <div class="panel timer-type-card">
+                <div class="timer-card-header">
+                  <h3 class="timer-card-title">Distribución por Tipo de Prueba</h3>
+                </div>
+                <div class="timer-type-grid" id="timerTypeGrid">
+                  <div class="timer-empty-inline" style="grid-column:1/-1;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="20" height="20" style="opacity:0.4;margin-bottom:0.35rem;">
+                      <circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span>Sin registros por tipo aún</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Tabla Inferior: Historial de Ejecuciones Cronometradas -->
-        <div class="panel timer-history-panel" style="margin-top:1.25rem;">
-          <h3 class="timer-card-title" style="margin-bottom:0.75rem;">HISTORIAL DE EJECUCIONES CRONOMETRADAS</h3>
+        <div class="panel timer-history-panel" style="margin-top:1.15rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.85rem;">
+            <h3 class="timer-card-title" style="margin:0;">Historial de Sesiones Cronometradas</h3>
+          </div>
           <div class="table-responsive">
             <table class="kb-table">
               <thead>
@@ -913,9 +955,9 @@
 
     <!-- Controles de Transcripción / Detener -->
     <div class="jtb-right">
-      <button class="jtb-btn jtb-btn-stop" id="tpStopBtn" onclick="stopAI()" title="Detener respuesta de IA">
+      <button class="jtb-btn jtb-btn-stop is-idle" id="tpStopBtn" onclick="stopAI()" title="CIEL AI en espera" disabled>
         <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-        <span>DETENER</span>
+        <span>EN ESPERA</span>
       </button>
       <button class="jtb-icon-btn" id="ttsToggleBtn" onclick="toggleTTS()" title="Silenciar / Activar voz de CIEL AI">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -943,21 +985,51 @@
 
   <!-- Panel flotante de Transcripción (Diseño exacto de la captura) -->
   <div class="jarvis-log-panel hidden" id="jarvisLogPanel">
+    <div class="jlp-resize-corner" id="jlpResizeCorner" title="Arrastra para redimensionar ancho y alto"></div>
     <div class="jlp-header">
       <div class="jlp-header-title">
         <span class="jlp-header-dot"></span>
         <span>CIEL AI · TRANSCRIPCIÓN</span>
       </div>
       <div class="jlp-header-actions">
-        <button class="jlp-btn-action" onclick="toggleTranscriptDrawer()" title="Minimizar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        <button class="jlp-btn-action" id="jlpClearBtn" onclick="clearJarvisLog()" title="Limpiar historial">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
         </button>
-        <button class="jlp-btn-action" onclick="toggleTranscriptDrawer()" title="Cerrar">
+        <button class="jlp-btn-action" id="jlpMaxBtn" onclick="toggleMaximizeTranscript()" title="Maximizar / Restaurar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        </button>
+        <button class="jlp-btn-action" onclick="toggleTranscriptDrawer()" title="Cerrar ventana">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
     </div>
     <div class="jlp-body" id="jarvisLogList">
+      <!-- Estado de bienvenida visual para que nunca se vea vacío -->
+      <div class="jlp-empty-state" id="jlpEmptyState">
+        <div class="jlp-empty-pulse">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="28" height="28">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
+        </div>
+        <div class="jlp-empty-title">CIEL AI · Transcripción en Vivo</div>
+        <div class="jlp-empty-desc">Habla tocando la esfera o escribe tu consulta. Aquí verás la transcripción y respuestas al instante.</div>
+        <div class="jlp-quick-prompts">
+          <span class="jlp-quick-chip" onclick="queryCielAI('¿Qué casos de prueba hay creados?')">💬 Casos de prueba</span>
+          <span class="jlp-quick-chip" onclick="queryCielAI('¿Cómo funciona la base de conocimiento?')">📚 Base conocimiento</span>
+          <span class="jlp-quick-chip" onclick="queryCielAI('Genera casos de prueba para el login')">⚡ Generar pruebas</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1161,7 +1233,7 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Scripts: app.js primero (define las funciones globales), luego voice.js (las usa) -->
-  <script src="/static/js/app.js?v=4.2.3"></script>
-  <script src="/static/js/voice.js?v=4.2.3"></script>
+  <script src="/static/js/app.js?v=5.2.0"></script>
+  <script src="/static/js/voice.js?v=5.2.0"></script>
 </body>
 </html>
