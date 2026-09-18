@@ -66,57 +66,37 @@ async def startup_event():
     """Inicializa el pipeline RAG y el generador de casos de prueba."""
     global rag, generator
     print("Iniciando PRQA (API + Frontend)...")
-    
-    # Migración automática SQLite para agregar project_name si no existe y rellenar nulos
+
+    # ── Crear / sincronizar tablas con retry (MySQL puede tardar unos segundos extra) ──
+    import time
+    max_retries = 15
+    retry_delay = 2  # segundos entre intentos
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            print(f"Tablas de base de datos creadas / verificadas (intento {attempt}).")
+            break
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"BD no lista aun (intento {attempt}/{max_retries}): {e}. Reintentando en {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+            else:
+                print(f"ERROR CRITICO: No se pudo conectar a la BD tras {max_retries} intentos: {e}")
+
+
+    # ── Inicializar valores por defecto en registros existentes ────────────────
     try:
         from sqlalchemy import text
         db = SessionLocal()
         try:
-            db.execute(text("ALTER TABLE documents ADD COLUMN project_name VARCHAR DEFAULT 'Proyectos'"))
+            db.execute(text("UPDATE documents SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
+            db.execute(text("UPDATE test_cases SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
             db.commit()
+            print("Valores por defecto de project_name aplicados.")
         except Exception:
-            pass
-        db.execute(text("UPDATE documents SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
-        db.execute(text("UPDATE test_cases SET project_name = 'Proyectos' WHERE project_name IS NULL OR project_name = 'General'"))
-        db.commit()
-        print("Migraciones de project_name a 'Proyectos' completadas exitosamente en SQLite.")
+            db.rollback()
 
-        # Migrar columnas de tiempo en test_executions y export_file en test_cases
-        for col_def in [
-            "ALTER TABLE test_executions ADD COLUMN execution_time_seconds REAL",
-            "ALTER TABLE test_executions ADD COLUMN started_at DATETIME",
-            "ALTER TABLE test_executions ADD COLUMN paused_seconds REAL DEFAULT 0.0",
-            "ALTER TABLE test_cases ADD COLUMN export_file VARCHAR",
-        ]:
-            try:
-                db.execute(text(col_def))
-                db.commit()
-            except Exception:
-                pass
-
-        # Crear tabla timer_sessions si no existe (por si la BD ya existía)
-        try:
-            db.execute(text("""
-                CREATE TABLE IF NOT EXISTS timer_sessions (
-                    id VARCHAR PRIMARY KEY,
-                    test_case_id VARCHAR REFERENCES test_cases(id),
-                    project_name VARCHAR DEFAULT 'Proyectos',
-                    started_at DATETIME NOT NULL,
-                    stopped_at DATETIME,
-                    paused_seconds REAL DEFAULT 0.0,
-                    execution_time_seconds REAL,
-                    is_running BOOLEAN DEFAULT 1,
-                    is_paused BOOLEAN DEFAULT 0,
-                    pause_started_at DATETIME,
-                    tester_name VARCHAR,
-                    created_at DATETIME
-                )
-            """))
-            db.commit()
-        except Exception:
-            pass
-        
-        # Migrar archivos físicos al subdirectorio del proyecto "Proyectos"
+        # Migrar archivos físicos al subdirectorio del proyecto "Proyectos" (si aplica)
         for cat in ["requirements", "mtr", "templates"]:
             old_dir = KNOWLEDGE_BASE_PATH / cat
             new_dir = KNOWLEDGE_BASE_PATH / "Proyectos" / cat
@@ -129,16 +109,17 @@ async def startup_event():
                             import shutil
                             shutil.move(str(item), str(dest))
                             print(f"Movido archivo físico {item.name} a {dest}")
-                        
-                        # Actualizar en la base de datos el path del archivo físico
-                        doc = db.query(Document).filter(Document.filename == item.name, Document.category == cat).first()
+                        doc = db.query(Document).filter(
+                            Document.filename == item.name,
+                            Document.category == cat
+                        ).first()
                         if doc:
                             doc.file_path = str(dest)
                             db.commit()
-                            print(f"Actualizado path de {item.name} en SQLite a {dest}")
+                            print(f"Actualizado path de {item.name} en BD.")
         db.close()
     except Exception as e:
-        print(f"Error en migración SQLite y archivos: {e}")
+        print(f"Aviso en inicialización de datos: {e}")
 
     try:
         rag = RAGPipeline()
@@ -892,6 +873,131 @@ async def delete_matrix_group(project_name: str, module: str, date_prefix: Optio
     except Exception as ex:
         db.rollback()
         raise HTTPException(500, f"Error al eliminar matriz de pruebas: {ex}")
+    finally:
+        db.close()
+
+
+# ── Modelos Pydantic para editar / crear casos manualmente ──────────────────
+class TestCaseUpdateRequest(BaseModel):
+    """Permite actualizar cualquier campo editable de un caso de prueba."""
+    title: Optional[str] = None
+    test_type: Optional[str] = None
+    technique: Optional[str] = None
+    preconditions: Optional[str] = None
+    steps: Optional[List] = None          # Lista de strings o dicts
+    expected_result: Optional[str] = None
+    severity: Optional[str] = None
+    acceptance_criteria: Optional[str] = None
+    module: Optional[str] = None
+    category: Optional[str] = None
+
+
+class TestCaseManualRequest(BaseModel):
+    """Datos para crear un caso de prueba manualmente (sin IA)."""
+    project_name: str = "Proyectos"
+    module: str = "General"
+    title: str
+    test_type: str = "FUNCIONALES"
+    technique: Optional[str] = ""
+    preconditions: Optional[str] = ""
+    steps: Optional[List] = []             # Lista de strings
+    expected_result: Optional[str] = ""
+    severity: Optional[str] = "Tolerable"
+    category: Optional[str] = ""
+    acceptance_criteria: Optional[str] = ""
+
+
+@app.put("/api/test-cases/{test_case_id}")
+async def update_test_case(test_case_id: str, req: TestCaseUpdateRequest):
+    """Actualiza uno o más campos editables de un caso de prueba existente."""
+    db = SessionLocal()
+    try:
+        tc = db.query(TestCase).filter(TestCase.id == test_case_id).first()
+        if not tc:
+            raise HTTPException(404, "Caso de prueba no encontrado.")
+
+        if req.title is not None:
+            tc.title = req.title
+        if req.test_type is not None:
+            tc.test_type = req.test_type
+        if req.technique is not None:
+            tc.technique = req.technique
+        if req.preconditions is not None:
+            tc.preconditions = req.preconditions
+        if req.steps is not None:
+            tc.steps = json.dumps(req.steps, ensure_ascii=False)
+        if req.expected_result is not None:
+            tc.expected_result = req.expected_result
+        if req.severity is not None:
+            tc.severity = req.severity
+        if req.acceptance_criteria is not None:
+            tc.acceptance_criteria = req.acceptance_criteria
+        if req.module is not None:
+            tc.module = req.module
+        if req.category is not None:
+            tc.category = req.category
+
+        db.commit()
+        db.refresh(tc)
+        return {
+            "status": "ok",
+            "message": "Caso de prueba actualizado correctamente.",
+            "id": tc.id,
+            "case_id": tc.case_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(500, f"Error al actualizar caso: {ex}")
+    finally:
+        db.close()
+
+
+@app.post("/api/test-cases/manual")
+async def create_manual_test_case(req: TestCaseManualRequest):
+    """Crea un caso de prueba manualmente sin usar la IA."""
+    db = SessionLocal()
+    try:
+        # Generar case_id con formato CFG-MAN-MANUAL-NN
+        existing_count = db.query(TestCase).filter(
+            TestCase.project_name == req.project_name
+        ).count()
+        case_id = f"CFG-MAN-MANUAL-{existing_count + 1:03d}"
+
+        steps_json = json.dumps(req.steps or [], ensure_ascii=False)
+
+        tc = TestCase(
+            id=str(uuid.uuid4()),
+            case_id=case_id,
+            project_name=req.project_name,
+            module=req.module,
+            title=req.title,
+            test_type=req.test_type,
+            technique=req.technique or "",
+            preconditions=req.preconditions or "",
+            steps=steps_json,
+            expected_result=req.expected_result or "",
+            severity=req.severity or "Tolerable",
+            category=req.category or "",
+            acceptance_criteria=req.acceptance_criteria or "",
+            status="Pendiente",
+            created_at=now_co().replace(tzinfo=None),
+        )
+        db.add(tc)
+        db.commit()
+        db.refresh(tc)
+        return {
+            "status": "created",
+            "id": tc.id,
+            "case_id": tc.case_id,
+            "title": tc.title,
+            "project_name": tc.project_name,
+            "module": tc.module,
+        }
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(500, f"Error al crear caso manual: {ex}")
     finally:
         db.close()
 

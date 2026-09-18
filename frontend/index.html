@@ -132,27 +132,17 @@
           <div class="nav-indicator"></div>
         </button>
 
-        <!-- Paso 3: Ejecutar Pruebas -->
+        <!-- Paso 3: Ejecutar Pruebas (incluye cronómetro) -->
         <button class="nav-item" id="navExecution" onclick="switchModule('execution')">
           <div class="nav-step-badge">3</div>
           <div class="nav-text-group">
             <span class="nav-title">Ejecutar Pruebas</span>
-            <span class="nav-subtitle">Registra CUMPLE o NO CUMPLE</span>
+            <span class="nav-subtitle">Registra resultados y tiempos</span>
           </div>
           <div class="nav-indicator"></div>
         </button>
 
-        <!-- Paso 4: Tiempos de Ejecución -->
-        <button class="nav-item" id="navTimer" onclick="switchModule('timer')">
-          <div class="nav-step-badge nav-step-alt" style="background:#f59e0b;color:#fff;">⏱</div>
-          <div class="nav-text-group">
-            <span class="nav-title">Tiempos de Ejecución</span>
-            <span class="nav-subtitle">Cronómetro y analíticas</span>
-          </div>
-          <div class="nav-indicator"></div>
-        </button>
-
-        <!-- Paso 5: Dashboard -->
+        <!-- Paso 4: Dashboard -->
         <button class="nav-item" id="navDashboard" onclick="switchModule('dashboard')">
           <div class="nav-step-badge nav-step-alt">📊</div>
           <div class="nav-text-group">
@@ -514,263 +504,269 @@
       </section>
 
       <!-- ════════════════════════════════════════════
-           MÓDULO 3: EJECUTAR PRUEBAS
+           MÓDULO 3: EJECUTAR PRUEBAS (Unificado)
       ════════════════════════════════════════════ -->
       <section class="module" id="moduleExecution">
         <div class="exec-layout">
-          <!-- Header KPI chips -->
-          <!-- Vista 1: Lista de matrices Excel (por defecto) -->
-          <div id="execMatrixListView">
-            <!-- KPI chips globales -->
-            <div class="exec-kpi-row" id="execKpiRow">
-              <span class="exec-kpi-chip" id="execGlobalKpiTotal">0 <em>Total Casos</em></span>
-              <span class="exec-kpi-chip green" id="execGlobalKpiPass">0 <em>Cumple</em></span>
-              <span class="exec-kpi-chip red" id="execGlobalKpiFail">0 <em>No Cumple</em></span>
-              <span class="exec-kpi-chip purple" id="execGlobalKpiRate">0% <em>Avance</em></span>
-            </div>
-
-            <!-- Subtítulo -->
-            <p id="execSubtitle" style="font-size:0.78rem;color:var(--text-muted);margin:0.25rem 0 0.85rem;">
-              Selecciona una Matriz Excel para ejecutar y registrar sus casos de prueba.
-            </p>
-
-            <!-- Grid de tarjetas de matrices -->
-            <div id="execMatrixGrid" class="exec-matrix-grid">
-              <div class="empty-state"><p>Cargando matrices...</p></div>
-            </div>
+          <!-- Pestañas: vista Analíticas completas -->
+          <div class="exec-tab-bar" id="execTabBar" style="display:none;">
+            <button class="exec-tab active" id="execTabExecute" onclick="switchExecTab('execute')">Ejecutar</button>
+            <button class="exec-tab" id="execTabTimer" onclick="switchExecTab('timer')">Historial</button>
           </div>
 
-          <!-- Vista 2: Detalle de casos de una matriz (oculta por defecto) -->
-          <div id="execDetailView" class="hidden">
-            <!-- Header de la vista detalle -->
-            <div class="exec-detail-header">
-              <button class="exec-back-btn" onclick="backToExecMatrices()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
-                  <polyline points="15 18 9 12 15 6"/>
+          <!-- ── Sub-vista A: Ejecutar Pruebas ── -->
+          <div id="execTabContentExecute">
+            <!-- Vista 1: Lista de matrices Excel (por defecto) -->
+            <div id="execMatrixListView">
+              <!-- KPI chips globales -->
+              <div class="exec-kpi-row" id="execKpiRow">
+                <span class="exec-kpi-chip" id="execGlobalKpiTotal">0 <em>Total Casos</em></span>
+                <span class="exec-kpi-chip green" id="execGlobalKpiPass">0 <em>Cumple</em></span>
+                <span class="exec-kpi-chip red" id="execGlobalKpiFail">0 <em>No Cumple</em></span>
+                <span class="exec-kpi-chip purple" id="execGlobalKpiRate">0% <em>Avance</em></span>
+              </div>
+              <p id="execSubtitle" style="font-size:0.78rem;color:var(--text-muted);margin:0.25rem 0 0.85rem;">
+                Selecciona una Matriz Excel para ejecutar y registrar sus casos de prueba.
+              </p>
+              <div id="execMatrixGrid" class="exec-matrix-grid">
+                <div class="empty-state"><p>Cargando matrices...</p></div>
+              </div>
+            </div>
+
+            <!-- Vista 2: Detalle unificado (tabla izquierda + cronómetro derecha) -->
+            <div id="execDetailView" class="hidden">
+              <!-- Header de la vista detalle -->
+              <div class="exec-detail-header">
+                <button class="exec-back-btn" onclick="backToExecMatrices()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Volver a Matrices</span>
+                </button>
+                <div class="exec-detail-title-area">
+                  <div class="exec-detail-title" id="execDetailTitle">Módulo: General</div>
+                  <div class="exec-detail-meta" id="execDetailMeta"></div>
+                </div>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                  <button class="btn-ghost" style="font-size:0.75rem;padding:0.45rem 0.85rem;" onclick="refreshExecDetail()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Actualizar
+                  </button>
+                  <button class="btn-primary" style="font-size:0.75rem;padding:0.45rem 0.85rem;" id="execDetailExportBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Descargar Resultados
+                  </button>
+                </div>
+              </div>
+
+              <!-- KPIs de la matriz seleccionada -->
+              <div class="exec-detail-kpis">
+                <div class="exec-dkpi-card">
+                  <span class="exec-dkpi-num" id="execDKpiTotal">0</span>
+                  <span class="exec-dkpi-lbl">Total Casos</span>
+                </div>
+                <div class="exec-dkpi-card green">
+                  <span class="exec-dkpi-num" id="execDKpiCumple">0</span>
+                  <span class="exec-dkpi-lbl">&#10003; CUMPLE</span>
+                </div>
+                <div class="exec-dkpi-card red">
+                  <span class="exec-dkpi-num" id="execDKpiFail">0</span>
+                  <span class="exec-dkpi-lbl">&#10007; NO CUMPLE</span>
+                </div>
+                <div class="exec-dkpi-card amber">
+                  <span class="exec-dkpi-num" id="execDKpiPending">0</span>
+                  <span class="exec-dkpi-lbl">&#9203; Pendientes</span>
+                </div>
+                <div class="exec-dkpi-card purple" style="flex:2;min-width:160px;">
+                  <div style="width:100%;height:8px;background:var(--bg-panel);border-radius:9999px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="execDetailProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#009ca6,#00e5ff);border-radius:9999px;transition:width 0.4s ease;"></div>
+                  </div>
+                  <span class="exec-dkpi-lbl"><span id="execDKpiPct" style="font-weight:700;color:var(--accent-primary);">0%</span> Avance</span>
+                </div>
+              </div>
+
+              <!-- Layout dividido: tabla izquierda | cronómetro derecha -->
+              <div class="exec-unified-layout">
+
+                <!-- Columna Izquierda: Casos -->
+                <div class="exec-cases-col">
+                  <div class="exec-filter-bar" style="margin-bottom:0.75rem;">
+                    <div class="dash-search-input-wrap" style="flex:1;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      <input type="text" class="dash-filter-search" id="execDetailSearch" placeholder="Buscar por titulo, ID, tipo..." oninput="filterExecDetailCases()" />
+                    </div>
+                    <select class="dash-filter-select" id="execDetailStatusFilter" onchange="filterExecDetailCases()">
+                      <option value="">Todos los estados</option>
+                      <option value="Pendiente">Pendientes</option>
+                      <option value="CUMPLE">CUMPLE</option>
+                      <option value="NO CUMPLE">NO CUMPLE</option>
+                    </select>
+                    <button class="btn-primary" style="font-size:0.72rem;padding:0.4rem 0.85rem;gap:0.4rem;white-space:nowrap;" onclick="openCreateManualCaseModal()">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Nuevo Caso
+                    </button>
+                  </div>
+                  <div id="execDetailCasesList" class="exec-cases-container"></div>
+                </div>
+
+                <!-- Columna Derecha: Cronómetro integrado -->
+                <div class="exec-timer-col panel">
+                  <div class="exec-timer-col-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <span>Cronómetro</span>
+                  </div>
+
+                  <div class="form-group" style="margin-bottom:0.6rem;">
+                    <label class="form-label" style="font-size:0.7rem;">Caso seleccionado</label>
+                    <div id="timerSelectedCaseDisplay" style="padding:0.5rem 0.7rem;background:rgba(0,156,166,0.07);border:1px solid rgba(0,156,166,0.25);border-radius:8px;font-size:0.72rem;color:var(--text-secondary);min-height:2.4rem;display:flex;align-items:center;gap:0.4rem;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="opacity:0.4;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span id="timerSelectedCaseText" style="color:var(--text-muted);width:100%;">Haz clic en una fila o en el botón ⏱ para seleccionarlo</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label class="form-label" style="font-size:0.7rem;" for="timerTesterInput">Tester (opcional)</label>
+                    <input type="text" id="timerTesterInput" class="form-input" style="font-size:0.78rem;padding:0.4rem 0.65rem;" placeholder="Nombre del tester" />
+                  </div>
+
+                  <!-- HUD del cronómetro -->
+                  <div class="timer-hud-box" style="margin-bottom:0.75rem;">
+                    <div class="timer-state-indicator" id="timerStateIndicator">
+                      <span class="timer-dot"></span>
+                      <span id="timerStateText">LISTO</span>
+                    </div>
+                    <div class="timer-digital-display" id="timerDisplay">00:00.0</div>
+                    <div class="timer-action-buttons">
+                      <button class="timer-btn-start" id="btnTimerStart" onclick="startTimer()">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>Iniciar</span>
+                      </button>
+                      <button class="timer-btn-stop" id="btnTimerStop" onclick="stopTimer()" disabled>
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="6" y="6" width="12" height="12"/></svg>
+                        <span>Detener &amp; Guardar</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Mini métricas -->
+                  <div class="exec-timer-mini-kpis">
+                    <div class="exec-timer-mini-kpi">
+                      <span class="exec-timer-mini-label">Cronometrados</span>
+                      <span class="exec-timer-mini-val" id="timerKpiCount">0</span>
+                    </div>
+                    <div class="exec-timer-mini-kpi">
+                      <span class="exec-timer-mini-label">Promedio</span>
+                      <span class="exec-timer-mini-val" id="timerKpiAvg">0s</span>
+                    </div>
+                    <div class="exec-timer-mini-kpi">
+                      <span class="exec-timer-mini-label">Total acumulado</span>
+                      <span class="exec-timer-mini-val" id="timerKpiTotal">0s</span>
+                    </div>
+                  </div>
+
+                  <!-- Mini historial reciente -->
+                  <div style="margin-top:0.75rem;">
+                    <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;">Últimas Ejecuciones</div>
+                    <div id="timerMiniHistory" style="display:flex;flex-direction:column;gap:0.3rem;max-height:200px;overflow-y:auto;">
+                      <div style="font-size:0.72rem;color:var(--text-muted);text-align:center;padding:0.75rem 0;">Sin registros aún</div>
+                    </div>
+                  </div>
+
+                  <button class="btn-ghost" onclick="exportTimedExcel()" style="width:100%;margin-top:0.85rem;font-size:0.72rem;gap:0.4rem;justify-content:center;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Excel con Tiempos
+                  </button>
+                </div>
+
+              </div><!-- /exec-unified-layout -->
+            </div><!-- /execDetailView -->
+          </div><!-- /execTabContentExecute -->
+
+          <!-- Sub-vista B: Analíticas / Historial completo -->
+          <div id="execTabContentTimer" class="hidden">
+            <div class="timer-top-header" style="margin-bottom:0.85rem;">
+              <div>
+                <h1 class="timer-main-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  Historial y Analíticas de Tiempos
+                </h1>
+                <p class="timer-main-subtitle">Estadísticas globales de todas las sesiones cronometradas</p>
+              </div>
+              <button class="btn-ghost" onclick="exportTimedExcel()" style="gap:0.5rem;font-weight:600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--accent-primary);">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
-                <span>Volver a Matrices</span>
+                <span>Descargar Excel con Tiempos</span>
               </button>
-              <div class="exec-detail-title-area">
-                <div class="exec-detail-title" id="execDetailTitle">Módulo: General</div>
-                <div class="exec-detail-meta" id="execDetailMeta"></div>
-              </div>
-              <div style="display:flex;gap:0.5rem;align-items:center;">
-                <button class="btn-ghost" style="font-size:0.75rem;padding:0.45rem 0.85rem;" onclick="refreshExecDetail()">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                  Actualizar
-                </button>
-                <button class="btn-primary" style="font-size:0.75rem;padding:0.45rem 0.85rem;" id="execDetailExportBtn">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Descargar Resultados
-                </button>
-              </div>
             </div>
 
-            <!-- KPIs de la matriz seleccionada -->
-            <div class="exec-detail-kpis">
-              <div class="exec-dkpi-card">
-                <span class="exec-dkpi-num" id="execDKpiTotal">0</span>
-                <span class="exec-dkpi-lbl">Total Casos</span>
-              </div>
-              <div class="exec-dkpi-card green">
-                <span class="exec-dkpi-num" id="execDKpiCumple">0</span>
-                <span class="exec-dkpi-lbl">✓ CUMPLE</span>
-              </div>
-              <div class="exec-dkpi-card red">
-                <span class="exec-dkpi-num" id="execDKpiFail">0</span>
-                <span class="exec-dkpi-lbl">✗ NO CUMPLE</span>
-              </div>
-              <div class="exec-dkpi-card amber">
-                <span class="exec-dkpi-num" id="execDKpiPending">0</span>
-                <span class="exec-dkpi-lbl">⏳ Pendientes</span>
-              </div>
-              <div class="exec-dkpi-card purple" style="flex:2;min-width:160px;">
-                <div style="width:100%;height:8px;background:var(--bg-panel);border-radius:9999px;overflow:hidden;margin-bottom:0.35rem;">
-                  <div id="execDetailProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#009ca6,#00e5ff);border-radius:9999px;transition:width 0.4s ease;"></div>
-                </div>
-                <span class="exec-dkpi-lbl"><span id="execDKpiPct" style="font-weight:700;color:var(--accent-primary);">0%</span> Avance</span>
-              </div>
-            </div>
-
-            <!-- Barra filtros de la vista detalle -->
-            <div class="exec-filter-bar" style="margin-bottom:0.75rem;">
-              <div class="dash-search-input-wrap" style="flex:1;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input type="text" class="dash-filter-search" id="execDetailSearch" placeholder="Buscar por título, ID, tipo..." oninput="filterExecDetailCases()" />
-              </div>
-              <select class="dash-filter-select" id="execDetailStatusFilter" onchange="filterExecDetailCases()">
-                <option value="">Todos los estados</option>
-                <option value="Pendiente">Pendientes</option>
-                <option value="CUMPLE">CUMPLE</option>
-                <option value="NO CUMPLE">NO CUMPLE</option>
-              </select>
-            </div>
-
-            <!-- Lista de casos de la matriz -->
-            <div id="execDetailCasesList" class="exec-cases-container"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ════════════════════════════════════════════
-           MÓDULO 4: TIEMPOS DE EJECUCIÓN (HUD PRO)
-      ════════════════════════════════════════════ -->
-      <section class="module" id="moduleTimer">
-        <!-- Header con Botón de Exportación -->
-        <div class="timer-top-header">
-          <div>
-            <h1 class="timer-main-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              Tiempos de Ejecución
-            </h1>
-            <p class="timer-main-subtitle">Mide, registra y analiza el tiempo real de cada caso de prueba por matriz Excel</p>
-          </div>
-          <button class="btn-ghost" onclick="exportTimedExcel()" style="gap:0.5rem;font-weight:600;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--accent-primary);">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            <span>Descargar Excel con Tiempos</span>
-          </button>
-        </div>
-
-        <!-- Cuadrícula Principal: Cronómetro + Analíticas Proporcionadas -->
-        <div class="timer-main-grid">
-          <!-- Columna Izquierda: Controles y Cronómetro -->
-          <div class="panel timer-controls-card">
-            <div style="display:flex;flex-direction:column;gap:0.75rem;">
-              <div class="form-group" style="margin-bottom:0;">
-                <label class="form-label" for="timerMatrixSelect">Matriz de Pruebas (Archivo Excel)</label>
-                <select id="timerMatrixSelect" class="form-input" onchange="onTimerMatrixSelected()">
-                  <option value="">-- Todas las matrices de prueba --</option>
-                </select>
-              </div>
-
-              <div class="form-group" style="margin-bottom:0;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
-                  <label class="form-label" for="timerCaseSelect" style="margin:0;">Caso de Prueba</label>
-                  <span id="timerAvailableCasesCount" style="font-size:0.68rem;color:var(--text-muted);">0 casos disponibles</span>
-                </div>
-                <select id="timerCaseSelect" class="form-input">
-                  <option value="">-- Selecciona un caso de prueba --</option>
-                </select>
-              </div>
-
-              <div class="form-group" style="margin-bottom:0;">
-                <label class="form-label" for="timerTesterInput">Tester</label>
-                <input type="text" id="timerTesterInput" class="form-input" placeholder="Nombre del tester (opcional)" />
-              </div>
-            </div>
-
-            <!-- Display HUD del Cronómetro -->
-            <div class="timer-hud-box">
-              <div class="timer-state-indicator" id="timerStateIndicator">
-                <span class="timer-dot"></span>
-                <span id="timerStateText">LISTO</span>
-              </div>
-              <div class="timer-digital-display" id="timerDisplay">00:00.0</div>
-              <div class="timer-action-buttons">
-                <button class="timer-btn-start" id="btnTimerStart" onclick="startTimer()">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  <span>Iniciar</span>
-                </button>
-                <button class="timer-btn-stop" id="btnTimerStop" onclick="stopTimer()" disabled>
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="6" y="6" width="12" height="12"/></svg>
-                  <span>Detener & Guardar</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Columna Derecha: Métricas y Distribuciones Equilibradas -->
-          <div class="timer-analytics-col">
-            <!-- Fila de 4 KPIs Estadísticos Integrados -->
-            <div class="timer-kpi-grid">
-              <div class="timer-kpi-card">
-                <span class="timer-kpi-label">Casos Cronometrados</span>
-                <span class="timer-kpi-val" id="timerKpiCount">0</span>
-              </div>
-              <div class="timer-kpi-card">
-                <span class="timer-kpi-label">Tiempo Promedio</span>
-                <span class="timer-kpi-val" id="timerKpiAvg">0s</span>
-              </div>
-              <div class="timer-kpi-card">
-                <span class="timer-kpi-label">Tiempo Total</span>
-                <span class="timer-kpi-val" id="timerKpiTotal">0s</span>
-              </div>
-              <div class="timer-kpi-card">
-                <span class="timer-kpi-label">Rango Registrado</span>
-                <span class="timer-kpi-val" style="font-size:1.05rem;display:flex;gap:0.35rem;align-items:baseline;justify-content:center;">
-                  <span id="timerKpiMin">0s</span> <span style="font-size:0.68rem;color:var(--text-muted);font-weight:500;">mín</span>
-                  <span style="color:var(--text-muted);font-size:0.75rem;">·</span>
-                  <span id="timerKpiMax">0s</span> <span style="font-size:0.68rem;color:var(--text-muted);font-weight:500;">máx</span>
-                </span>
-              </div>
-            </div>
-
-            <!-- Fila de 2 Columnas de Métricas Visuales -->
-            <div class="timer-charts-row">
-              <!-- Sub-tarjeta 1: Tiempo Promedio por Módulo -->
-              <div class="panel timer-module-card">
-                <div class="timer-card-header">
-                  <h3 class="timer-card-title">Tiempo Promedio por Módulo</h3>
-                </div>
-                <div class="timer-module-bars-list" id="timerModuleBarsList">
-                  <div class="timer-empty-inline">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="20" height="20" style="opacity:0.4;margin-bottom:0.35rem;">
-                      <rect x="3" y="12" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/>
-                    </svg>
-                    <span>Sin métricas registradas por módulo aún</span>
+            <div class="timer-main-grid">
+              <div class="panel timer-controls-card">
+                <div class="timer-kpi-grid">
+                  <div class="timer-kpi-card"><span class="timer-kpi-label">Casos Cronometrados</span><span class="timer-kpi-val" id="timerKpiCountFull">0</span></div>
+                  <div class="timer-kpi-card"><span class="timer-kpi-label">Tiempo Promedio</span><span class="timer-kpi-val" id="timerKpiAvgFull">0s</span></div>
+                  <div class="timer-kpi-card"><span class="timer-kpi-label">Tiempo Total</span><span class="timer-kpi-val" id="timerKpiTotalFull">0s</span></div>
+                  <div class="timer-kpi-card">
+                    <span class="timer-kpi-label">Rango Registrado</span>
+                    <span class="timer-kpi-val" style="font-size:1.05rem;display:flex;gap:0.35rem;align-items:baseline;justify-content:center;">
+                      <span id="timerKpiMin">0s</span> <span style="font-size:0.68rem;color:var(--text-muted);font-weight:500;">min</span>
+                      <span style="color:var(--text-muted);font-size:0.75rem;">·</span>
+                      <span id="timerKpiMax">0s</span> <span style="font-size:0.68rem;color:var(--text-muted);font-weight:500;">max</span>
+                    </span>
                   </div>
                 </div>
               </div>
-
-              <!-- Sub-tarjeta 2: Distribución por Tipo de Prueba -->
-              <div class="panel timer-type-card">
-                <div class="timer-card-header">
-                  <h3 class="timer-card-title">Distribución por Tipo de Prueba</h3>
-                </div>
-                <div class="timer-type-grid" id="timerTypeGrid">
-                  <div class="timer-empty-inline" style="grid-column:1/-1;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="20" height="20" style="opacity:0.4;margin-bottom:0.35rem;">
-                      <circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/>
-                    </svg>
-                    <span>Sin registros por tipo aún</span>
+              <div class="timer-analytics-col">
+                <div class="timer-charts-row">
+                  <div class="panel timer-module-card">
+                    <div class="timer-card-header"><h3 class="timer-card-title">Tiempo Promedio por Módulo</h3></div>
+                    <div class="timer-module-bars-list" id="timerModuleBarsList">
+                      <div class="timer-empty-inline">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="20" height="20" style="opacity:0.4;margin-bottom:0.35rem;"><rect x="3" y="12" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/></svg>
+                        <span>Sin métricas registradas por módulo aún</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="panel timer-type-card">
+                    <div class="timer-card-header"><h3 class="timer-card-title">Distribución por Tipo de Prueba</h3></div>
+                    <div class="timer-type-grid" id="timerTypeGrid">
+                      <div class="timer-empty-inline" style="grid-column:1/-1;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="20" height="20" style="opacity:0.4;margin-bottom:0.35rem;"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <span>Sin registros por tipo aún</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <!-- Tabla Inferior: Historial de Ejecuciones Cronometradas -->
-        <div class="panel timer-history-panel" style="margin-top:1.15rem;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.85rem;">
-            <h3 class="timer-card-title" style="margin:0;">Historial de Sesiones Cronometradas</h3>
-          </div>
-          <div class="table-responsive">
-            <table class="kb-table">
-              <thead>
-                <tr>
-                  <th style="width:130px;">ID CASO</th>
-                  <th>TÍTULO</th>
-                  <th>MÓDULO</th>
-                  <th style="width:90px;">TIEMPO</th>
-                  <th style="width:100px;">ESTADO</th>
-                  <th style="width:130px;">FECHA</th>
-                  <th style="width:70px;text-align:center;">ACCIONES</th>
-                </tr>
-              </thead>
-              <tbody id="timerHistoryBody">
-                <tr>
-                  <td colspan="7" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Sin sesiones registradas aún.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+            <div class="panel timer-history-panel" style="margin-top:1.15rem;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.85rem;">
+                <h3 class="timer-card-title" style="margin:0;">Historial de Sesiones Cronometradas</h3>
+              </div>
+              <div class="table-responsive">
+                <table class="kb-table">
+                  <thead>
+                    <tr>
+                      <th style="width:130px;">ID CASO</th><th>TITULO</th><th>MÓDULO</th>
+                      <th style="width:90px;">TIEMPO</th><th style="width:100px;">ESTADO</th>
+                      <th style="width:130px;">FECHA</th><th style="width:70px;text-align:center;">ACCIONES</th>
+                    </tr>
+                  </thead>
+                  <tbody id="timerHistoryBody">
+                    <tr><td colspan="7" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Sin sesiones registradas aún.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div> <!-- /execTabContentTimer -->
+
+        </div> <!-- /exec-layout -->
       </section>
+
+
 
       <!-- ════════════════════════════════════════════
            MÓDULO 5: DASHBOARD — ANALYTICS PRO
@@ -1232,8 +1228,179 @@
   <!-- Toast Container -->
   <div id="toastContainer" class="toast-container"></div>
 
+  <!-- ═══ MODAL: VER DETALLES COMPLETOS DEL CASO DE PRUEBA ═══ -->
+  <div class="modal-overlay hidden" id="caseDetailModal">
+    <div class="modal" style="max-width:720px;width:95%;max-height:90vh;display:flex;flex-direction:column;">
+      <div class="modal-header">
+        <div class="exec-modal-title-wrap">
+          <div class="exec-modal-badge" id="caseDetailModalId">—</div>
+          <h3 class="modal-title" id="caseDetailModalTitle">Detalles del Caso</h3>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <button class="btn-ghost" style="font-size:0.72rem;padding:0.4rem 0.7rem;gap:0.4rem;" id="caseDetailEditBtn" onclick="editFromDetailModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Editar
+          </button>
+          <button class="modal-close" onclick="closeCaseDetailModal()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1;">
+        <!-- Chips de metadatos -->
+        <div id="caseDetailMetaChips" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem;"></div>
+
+        <!-- Precondiciones -->
+        <div class="case-detail-section" id="caseDetailPreconditionsSection">
+          <div class="case-detail-section-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Precondiciones
+          </div>
+          <div class="case-detail-section-body" id="caseDetailPreconditions">—</div>
+        </div>
+
+        <!-- Pasos de Ejecución -->
+        <div class="case-detail-section" id="caseDetailStepsSection">
+          <div class="case-detail-section-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Pasos de Ejecución
+          </div>
+          <ol class="case-detail-steps-list" id="caseDetailStepsList"></ol>
+        </div>
+
+        <!-- Resultado Esperado -->
+        <div class="case-detail-section" id="caseDetailExpectedSection">
+          <div class="case-detail-section-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Resultado Esperado
+          </div>
+          <div class="case-detail-section-body" id="caseDetailExpected">—</div>
+        </div>
+
+        <!-- Criterios de Aceptación -->
+        <div class="case-detail-section" id="caseDetailAccSection">
+          <div class="case-detail-section-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Criterios de Aceptación
+          </div>
+          <div class="case-detail-section-body" id="caseDetailAcc">—</div>
+        </div>
+
+        <!-- Resultado registrado (si ya fue ejecutado) -->
+        <div class="case-detail-section" id="caseDetailResultSection" style="display:none;">
+          <div class="case-detail-section-label">Resultado Registrado</div>
+          <div id="caseDetailResult" style="font-weight:700;font-size:0.9rem;"></div>
+          <div id="caseDetailNotes" style="font-size:0.78rem;color:var(--text-muted);margin-top:0.4rem;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCaseDetailModal()">Cerrar</button>
+        <button class="btn-primary" id="caseDetailExecuteBtn" onclick="executeFromDetailModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Registrar Resultado
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: CREAR / EDITAR CASO DE PRUEBA MANUAL ═══ -->
+  <div class="modal-overlay hidden" id="editTestCaseModal">
+    <div class="modal" style="max-width:780px;width:96%;max-height:92vh;display:flex;flex-direction:column;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="editTestCaseModalTitle">Nuevo Caso de Prueba Manual</h3>
+        <button class="modal-close" onclick="closeEditTestCaseModal()">✕</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1;">
+        <input type="hidden" id="editTcId" />
+        <input type="hidden" id="editTcMode" value="create" /> <!-- create | edit -->
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+          <!-- Título -->
+          <div class="form-group" style="grid-column:1/-1;margin-bottom:0;">
+            <label class="form-label" for="editTcTitle">Título del Caso <span style="color:var(--accent-danger);">*</span></label>
+            <input type="text" class="form-input" id="editTcTitle" placeholder="ej. Verificar inicio de sesión con credenciales válidas" />
+          </div>
+
+          <!-- Tipo de Prueba -->
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="editTcType">Tipo de Prueba</label>
+            <select class="form-input" id="editTcType">
+              <option value="FUNCIONALES">Funcionales / Negocio</option>
+              <option value="CASOS NEGATIVOS">Casos Negativos / Bordes</option>
+              <option value="SEGURIDAD">Seguridad / Ciberseguridad</option>
+              <option value="INTEGRACION">Integración</option>
+              <option value="NO FUNCIONALES">No Funcionales</option>
+              <option value="CARGA">Carga</option>
+              <option value="ESTRESS">Estrés</option>
+              <option value="COMPATIBILIDAD">Compatibilidad</option>
+              <option value="RESILIENCIA">Resiliencia</option>
+            </select>
+          </div>
+
+          <!-- Severidad -->
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="editTcSeverity">Severidad</label>
+            <select class="form-input" id="editTcSeverity">
+              <option value="Tolerable" selected>Tolerable</option>
+              <option value="Bloqueante">Bloqueante</option>
+              <option value="Crítico">Crítico</option>
+              <option value="Interfaz de usuario">Interfaz de usuario (UI)</option>
+            </select>
+          </div>
+
+          <!-- Módulo -->
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="editTcModule">Módulo / Funcionalidad</label>
+            <input type="text" class="form-input" id="editTcModule" placeholder="ej. Autenticación, Carrito" />
+          </div>
+
+          <!-- Técnica -->
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="editTcTechnique">Técnica de Prueba</label>
+            <input type="text" class="form-input" id="editTcTechnique" placeholder="ej. Caja Negra, Partición de Equivalencias" />
+          </div>
+
+          <!-- Precondiciones -->
+          <div class="form-group" style="grid-column:1/-1;margin-bottom:0;">
+            <label class="form-label" for="editTcPreconditions">Precondiciones</label>
+            <textarea class="form-textarea" id="editTcPreconditions" rows="2" placeholder="Estado inicial requerido para ejecutar este caso..."></textarea>
+          </div>
+
+          <!-- Pasos de Ejecución -->
+          <div class="form-group" style="grid-column:1/-1;margin-bottom:0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+              <label class="form-label" style="margin:0;">Pasos de Ejecución</label>
+              <button type="button" class="btn-ghost" style="font-size:0.7rem;padding:0.25rem 0.6rem;gap:0.3rem;" onclick="addTcStep()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Agregar Paso
+              </button>
+            </div>
+            <div id="editTcStepsList" style="display:flex;flex-direction:column;gap:0.35rem;"></div>
+          </div>
+
+          <!-- Resultado Esperado -->
+          <div class="form-group" style="grid-column:1/-1;margin-bottom:0;">
+            <label class="form-label" for="editTcExpected">Resultado Esperado</label>
+            <textarea class="form-textarea" id="editTcExpected" rows="2" placeholder="Qué debería ocurrir si el sistema funciona correctamente..."></textarea>
+          </div>
+
+          <!-- Criterios de Aceptación -->
+          <div class="form-group" style="grid-column:1/-1;margin-bottom:0;">
+            <label class="form-label" for="editTcAcceptance">Criterios de Aceptación</label>
+            <textarea class="form-textarea" id="editTcAcceptance" rows="2" placeholder="Condiciones que deben cumplirse para considerar el caso aprobado..."></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeEditTestCaseModal()">Cancelar</button>
+        <button class="btn-primary" id="saveEditTestCaseBtn" onclick="saveTestCaseEdits()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Guardar Caso
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts: app.js primero (define las funciones globales), luego voice.js (las usa) -->
-  <script src="/static/js/app.js?v=5.2.0"></script>
-  <script src="/static/js/voice.js?v=5.2.0"></script>
+  <script src="/static/js/app.js?v=5.5.0"></script>
+  <script src="/static/js/voice.js?v=5.5.0"></script>
 </body>
 </html>

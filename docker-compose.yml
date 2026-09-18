@@ -4,8 +4,9 @@
 # Asistente QA con IA Local — Ciel Ingeniería S.A.S
 #
 # Servicios:
-#   1. ollama  → Servidor LLM local (llama3.1:8b)
-#   2. app     → Backend FastAPI + Frontend estático (un solo contenedor)
+#   1. ollama  → Servidor LLM local (llama3.2:3b)
+#   2. mysql   → Base de datos MySQL 8
+#   3. app     → Backend FastAPI + Frontend estático
 #
 # Uso:
 #   docker-compose up -d
@@ -27,7 +28,28 @@ services:
       - OLLAMA_FLASH_ATTENTION=1
     restart: unless-stopped
 
-  # ── 2. Aplicación (API + Frontend estático) ─────────────────
+  # ── 2. Base de Datos MySQL 8 ─────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: prqa_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-prqa_root_2026}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-prqa_db}
+      MYSQL_USER: ${MYSQL_USER:-prqa_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-prqa_pass_2026}
+    volumes:
+      - prqa_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-prqa_root_2026}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── 3. Aplicación (API + Frontend estático) ─────────────────
   app:
     build:
       context: .                      # raíz del proyecto
@@ -39,21 +61,24 @@ services:
       - ./backend/app:/app            # Hot-reload del código Python
       - ./frontend:/app/static        # Hot-reload del frontend
       - ./knowledge_base:/app/knowledge_base
-      - prqa_db:/app/db
       - prqa_chroma:/app/chroma_db
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - LLM_MODEL=${LLM_MODEL:-llama3.2:3b}
       - CHROMA_PATH=/app/chroma_db
-      - DB_PATH=/app/db/prqa.db
       - KNOWLEDGE_BASE_PATH=/app/knowledge_base
       - STATIC_PATH=/app/static
+      # MySQL connection (PyMySQL driver)
+      - DB_URL=mysql+pymysql://${MYSQL_USER:-prqa_user}:${MYSQL_PASSWORD:-prqa_pass_2026}@mysql:3306/${MYSQL_DATABASE:-prqa_db}?charset=utf8mb4
     depends_on:
-      - ollama
+      mysql:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
 
 # ── Volúmenes persistentes ──────────────────────────────────
 volumes:
-  ollama_data:    # Modelos LLM descargados
-  prqa_db:        # Base de datos SQLite (casos de prueba, ejecuciones)
-  prqa_chroma:    # Base de datos vectorial ChromaDB
+  ollama_data:       # Modelos LLM descargados
+  prqa_mysql_data:   # Base de datos MySQL (casos de prueba, ejecuciones)
+  prqa_chroma:       # Base de datos vectorial ChromaDB

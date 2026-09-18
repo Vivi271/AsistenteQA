@@ -23,6 +23,8 @@ unstructured==0.15.14
 
 # Database
 sqlalchemy==2.0.35
+pymysql==1.1.1
+cryptography==43.0.3
 
 # Utilities
 python-multipart==0.0.12

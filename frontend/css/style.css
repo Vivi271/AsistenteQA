@@ -15642,3 +15642,282 @@ body[data-theme="dark"] .doc-multiselect-btn:focus {
   transition: all 0.18s ease !important;
 }
 
+
+/* ======================================================
+   MODAL: VER DETALLES COMPLETOS DEL CASO DE PRUEBA
+   ====================================================== */
+
+.case-detail-section {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-panel, rgba(15, 20, 30, 0.4));
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.1));
+  border-radius: 8px;
+}
+
+.case-detail-section-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--accent-primary, #009ca6);
+  margin-bottom: 0.5rem;
+}
+
+.case-detail-section-body {
+  font-size: 0.82rem;
+  color: var(--text-primary, #e2e8f0);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.case-detail-steps-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.case-detail-steps-list li {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-primary, #e2e8f0);
+  line-height: 1.55;
+  border-bottom: 1px solid var(--border-color, rgba(148, 163, 184, 0.08));
+  transition: background 0.15s;
+}
+
+.case-detail-steps-list li:last-child { border-bottom: none; }
+
+.case-detail-steps-list li:hover {
+  background: rgba(0, 156, 166, 0.04);
+  border-radius: 4px;
+}
+
+/* ======================================================
+   MODAL: CREAR / EDITAR CASO DE PRUEBA MANUAL
+   ====================================================== */
+
+.tc-step-row {
+  animation: tcStepFadeIn 0.18s ease;
+}
+
+@keyframes tcStepFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Ajuste de la celda de acciones para botones adicionales */
+.exec-td-actions {
+  min-width: 280px;
+  vertical-align: middle;
+}
+
+/* ======================================================
+   PESTANAS: Ejecutar Pruebas / Cronometro
+   ====================================================== */
+
+.exec-tab-bar {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.1rem;
+  border-bottom: 1px solid var(--border-color, rgba(148, 163, 184, 0.12));
+  padding-bottom: 0;
+}
+
+.exec-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  border-radius: 6px 6px 0 0;
+  margin-bottom: -1px;
+}
+
+.exec-tab:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.exec-tab.active {
+  color: var(--accent-primary, #009ca6);
+  border-bottom-color: var(--accent-primary, #009ca6);
+  background: rgba(0, 156, 166, 0.06);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MÓDULO EJECUTAR PRUEBAS — LAYOUT UNIFICADO CON CRONÓMETRO
+   ══════════════════════════════════════════════════════════════ */
+
+/* Layout dividido: tabla izq + cronómetro derecha */
+.exec-unified-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1rem;
+  align-items: start;
+  margin-top: 0.75rem;
+}
+
+/* Columna de casos (izquierda) */
+.exec-cases-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 400px;
+}
+
+/* Columna del cronómetro (derecha) */
+.exec-timer-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.exec-timer-col-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Mini KPIs del cronómetro en el sidebar */
+.exec-timer-mini-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.exec-timer-mini-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-panel);
+  border-radius: 8px;
+  padding: 0.5rem 0.25rem;
+  gap: 0.15rem;
+}
+
+.exec-timer-mini-label {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.exec-timer-mini-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+  font-family: var(--font-hud, monospace);
+}
+
+/* Fila seleccionada para el cronómetro */
+.exec-table-row.timer-row-selected {
+  background: rgba(99, 102, 241, 0.08) !important;
+  outline: 1.5px solid rgba(99, 102, 241, 0.4);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+/* Responsive: en pantallas pequeñas, stack vertical */
+@media (max-width: 900px) {
+  .exec-unified-layout {
+    grid-template-columns: 1fr;
+  }
+  .exec-timer-col {
+    position: static;
+  }
+}
+
+/* Barra de acciones profesional y compacta */
+.exec-actions-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.exec-action-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.2));
+  background: var(--bg-card, #ffffff);
+  color: var(--text-secondary, #64748b);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.exec-action-icon-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.exec-action-icon-btn.btn-preview:hover {
+  color: var(--accent-primary, #009ca6);
+  border-color: rgba(0, 156, 166, 0.5);
+  background: rgba(0, 156, 166, 0.08);
+}
+
+.exec-action-icon-btn.btn-timer:hover {
+  color: #6366f1;
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.exec-action-icon-btn.btn-timer.active {
+  color: #ffffff;
+  border-color: #6366f1;
+  background: #6366f1;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.45);
+}
+
+.exec-action-icon-btn.btn-edit:hover {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.exec-actions-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--border-color, rgba(148, 163, 184, 0.25));
+  margin: 0 0.15rem;
+  flex-shrink: 0;
+}
+
+.exec-case-id:hover {
+  text-decoration: underline;
+  color: var(--accent-primary, #009ca6);
+}
+
+.exec-title-cell:hover {
+  color: var(--accent-primary, #009ca6);
+}
