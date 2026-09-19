@@ -35,6 +35,7 @@ services:
     ports:
       - "3306:3306"
     environment:
+      TZ: America/Bogota
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-prqa_root_2026}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-prqa_db}
       MYSQL_USER: ${MYSQL_USER:-prqa_user}
@@ -63,6 +64,7 @@ services:
       - ./knowledge_base:/app/knowledge_base
       - prqa_chroma:/app/chroma_db
     environment:
+      - TZ=America/Bogota
       - OLLAMA_HOST=http://ollama:11434
       - LLM_MODEL=${LLM_MODEL:-gemma3:4b}
       - CHROMA_PATH=/app/chroma_db

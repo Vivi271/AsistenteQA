@@ -683,6 +683,7 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
                     category=tc.get("category", ""),
                     acceptance_criteria=tc.get("acceptance_criteria", ""),
                     status="Pendiente",
+                    created_at=now_co().replace(tzinfo=None),
                 )
                 db.add(db_case)
                 saved_db_cases.append(db_case)

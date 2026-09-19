@@ -1772,12 +1772,28 @@ function renderExecMatrixCards(cases) {
     const pendientes = group.cases.filter(c => c.status === 'Pendiente' || !c.result).length;
     const pct = total > 0 ? Math.round((cumple / total) * 100) : 0;
 
-    let cleanDate = group.created_at || '';
-    try {
-      const iso = (typeof cleanDate === 'string' && !cleanDate.endsWith('Z') && !cleanDate.includes('+')) ? cleanDate + 'Z' : cleanDate;
-      const d = new Date(iso);
-      cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch (_) {}
+    let cleanDate = '';
+    const rawDate = group.created_at || (group.cases && group.cases[0] && group.cases[0].created_at) || '';
+    if (rawDate) {
+      try {
+        const iso = (typeof rawDate === 'string' && !rawDate.endsWith('Z') && !rawDate.includes('+')) ? rawDate + 'Z' : rawDate;
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+      } catch (_) {}
+    }
+    if (!cleanDate && group.export_file) {
+      const match = group.export_file.match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})/);
+      if (match) {
+        try {
+          const d = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}`);
+          if (!isNaN(d.getTime())) {
+            cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+        } catch (_) {}
+      }
+    }
 
     const encodedKey = encodeURIComponent(group.sessionKey);
 
@@ -1794,7 +1810,7 @@ function renderExecMatrixCards(cases) {
         <!-- Info principal -->
         <div class="exec-matrix-card-body">
           <div class="exec-matrix-card-title">📋 ${group.module}</div>
-          <div class="exec-matrix-card-meta">📅 ${cleanDate}</div>
+          <div class="exec-matrix-card-meta">${cleanDate ? `📅 ${cleanDate}` : `📋 ${total} casos`}</div>
 
           <!-- Barra de progreso -->
           <div class="exec-matrix-progress-wrap">
@@ -1890,12 +1906,41 @@ async function openExecMatrixDetail(encodedKey) {
   const metaEl = document.getElementById('execDetailMeta');
   if (titleEl) titleEl.textContent = `📋 ${module}`;
   if (metaEl) {
-    let cleanDate = fileOrDate;
-    try {
-      const iso = (typeof fileOrDate === 'string' && !fileOrDate.endsWith('Z') && !fileOrDate.includes('+')) ? fileOrDate + 'Z' : fileOrDate;
-      cleanDate = new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch (_) {}
-    metaEl.textContent = `📅 ${cleanDate} · ${groupCases.length} casos`;
+    let cleanDate = '';
+    // 1. Obtener fecha del caso
+    const rawDate = (groupCases[0] && groupCases[0].created_at) || '';
+    if (rawDate) {
+      try {
+        const iso = (typeof rawDate === 'string' && !rawDate.endsWith('Z') && !rawDate.includes('+')) ? rawDate + 'Z' : rawDate;
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+      } catch (_) {}
+    }
+
+    // 2. Si no hay fecha en el caso o sigue vacía, intentar del nombre del archivo (ej. Casos_General_2026-09-18_18-46-08.xlsx)
+    if (!cleanDate && typeof fileOrDate === 'string') {
+      const match = fileOrDate.match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})/);
+      if (match) {
+        try {
+          const d = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}`);
+          if (!isNaN(d.getTime())) {
+            cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+        } catch (_) {}
+      } else if (!fileOrDate.endsWith('.xlsx')) {
+        try {
+          const iso = (!fileOrDate.endsWith('Z') && !fileOrDate.includes('+')) ? fileOrDate + 'Z' : fileOrDate;
+          const d = new Date(iso);
+          if (!isNaN(d.getTime())) {
+            cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+        } catch (_) {}
+      }
+    }
+
+    metaEl.textContent = cleanDate ? `📅 ${cleanDate} · ${groupCases.length} casos` : `📋 ${groupCases.length} casos`;
   }
 
   // Botón de descargar resultados

@@ -5,9 +5,16 @@ de Ciel Ingeniería S.A.S para garantizar paridad del 100% en formato.
 """
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
+
+# Zona horaria Colombia (UTC-5)
+TZ_COLOMBIA = timezone(timedelta(hours=-5))
+
+def now_co():
+    """Retorna la fecha y hora actual de Colombia (UTC-5)."""
+    return datetime.now(TZ_COLOMBIA)
 
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -82,7 +89,7 @@ def export_to_eopa_excel(test_cases, output_path: str, project_name: str = "PRQA
     wb = openpyxl.load_workbook(template_path)
     ws = wb.active
 
-    now = datetime.now()
+    now = now_co()
     date_str = now.strftime("%Y/%m/%d")
 
     # ── Actualizar cabeceras del proyecto (Filas 8-12)
@@ -157,9 +164,30 @@ def export_to_eopa_excel(test_cases, output_path: str, project_name: str = "PRQA
             obs_parts.append(f"Tecnica: {tc.technique} | Precondicion: {tc.preconditions}")
         obs_text = " | ".join(obs_parts) if obs_parts else ""
 
+        # Fecha de la prueba: usar executed_at o created_at del caso si existe, o la fecha actual en Colombia
+        case_date_str = date_str
+        ref_dt = getattr(tc, "executed_at", None) or getattr(tc, "created_at", None)
+        if ref_dt:
+            if isinstance(ref_dt, datetime):
+                if ref_dt.tzinfo is not None:
+                    case_date_str = ref_dt.astimezone(TZ_COLOMBIA).strftime("%Y/%m/%d")
+                else:
+                    case_date_str = ref_dt.strftime("%Y/%m/%d")
+            elif isinstance(ref_dt, str):
+                try:
+                    clean = ref_dt.replace("Z", "+00:00")
+                    if "+" in clean or "-" in clean[10:]:
+                        p_dt = datetime.fromisoformat(clean)
+                        case_date_str = p_dt.astimezone(TZ_COLOMBIA).strftime("%Y/%m/%d")
+                    else:
+                        p_dt = datetime.fromisoformat(clean.split(".")[0])
+                        case_date_str = p_dt.strftime("%Y/%m/%d")
+                except Exception:
+                    case_date_str = date_str
+
         # ── Columnas base EOPA
         col_values = {
-            1:  date_str,
+            1:  case_date_str,
             2:  tc.case_id,
             3:  tc.test_type,
             4:  tc.title,
@@ -215,7 +243,7 @@ def export_timer_report(executions, output_path: str, project_name: str = "PRQA"
     ROW_EVEN  = "FFFFFF"
     ACCENT    = "009CA6"    # Teal corporativo Ciel
 
-    now = datetime.now()
+    now = now_co()
 
     # ── Titulo del reporte (fila 1)
     ws.merge_cells("A1:L1")
