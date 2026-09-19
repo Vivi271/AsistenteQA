@@ -63,3 +63,13 @@ download_test.xlsx
 # Knowledge base local (datos que no van al repo)
 backend/app/knowledge_base/
 knowledge_base/
+
+# Temporales de Office / Word
+~$*
+
+# Informe de práctica profesional y scripts generadores (pendientes por subir)
+Informe_Practica_Profesional_PRQA_Viviana_Garcia.docx
+build_corrected_informe.py
+build_v5.py
+generate_final_report.py
+
