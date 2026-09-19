@@ -644,7 +644,13 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
                 db.query(TestCase).filter(TestCase.id.in_(existing_ids)).delete(synchronize_session=False)
                 print(f"[generate] Reemplazando {len(existing)} casos anteriores de '{req.module}'")
 
-            # ── Prefijo de módulo: 3 letras del nombre (ej. "General" → "GEN", "Chat bot" → "CHA")
+            # ── Prefijo de proyecto y módulo dinámicos (sin prefijos fijos o quemados)
+            proj_words = [w for w in req.project_name.upper().split() if w]
+            if len(proj_words) >= 2:
+                proj_code = ''.join(w[0] for w in proj_words[:3] if w[0].isalnum()) or "PRJ"
+            else:
+                proj_code = ''.join(c for c in req.project_name.upper() if c.isalnum())[:4] or "PRQA"
+
             mod_code = ''.join(c for c in req.module.upper() if c.isalpha())[:3] or "MOD"
 
             saved_cases = []
@@ -665,8 +671,8 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
                 }
                 type_code = next((v for k, v in type_map.items() if k in raw_type), raw_type[:3])
 
-                # ID secuencial siempre relativo a esta generacion: CB-FUN-GEN-01, CB-SEC-GEN-02 ...
-                sequential_case_id = f"CB-{type_code}-{mod_code}-{i+1:02d}"
+                # ID secuencial dinámico por proyecto y módulo: PRQA-FUN-GEN-01, CB-SEC-GEN-02 ...
+                sequential_case_id = f"{proj_code}-{type_code}-{mod_code}-{i+1:02d}"
 
                 db_case = TestCase(
                     id=str(uuid.uuid4()),
@@ -1536,6 +1542,36 @@ async def timer_cancel(session_id: str):
         session.stopped_at = datetime.now()
         db.commit()
         return {"status": "cancelled", "session_id": session_id}
+    finally:
+        db.close()
+
+
+@app.get("/api/timer/current-running")
+async def timer_get_current_running(project_name: Optional[str] = None):
+    """Devuelve cualquier sesión activa en ejecución para restaurarla si el usuario refresca el navegador."""
+    db = SessionLocal()
+    try:
+        query = db.query(TimerSession).filter(TimerSession.is_running == True)
+        if project_name:
+            query = query.filter(TimerSession.project_name == project_name)
+        session = query.order_by(TimerSession.started_at.desc()).first()
+        if not session:
+            return {"active": False}
+        tc = db.query(TestCase).filter(TestCase.id == session.test_case_id).first()
+        net = _calc_net_seconds(session, now_co().replace(tzinfo=None))
+        return {
+            "active": True,
+            "session_id": session.id,
+            "test_case_id": session.test_case_id,
+            "case_id": tc.case_id if tc else None,
+            "title": tc.title if tc else None,
+            "module": tc.module if tc else None,
+            "project_name": session.project_name,
+            "started_at": session.started_at.isoformat(),
+            "elapsed_seconds": net,
+            "is_paused": session.is_paused,
+            "paused_seconds": session.paused_seconds or 0.0,
+        }
     finally:
         db.close()
 

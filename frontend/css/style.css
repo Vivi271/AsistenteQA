@@ -3059,9 +3059,12 @@ body[data-theme="light"] .how-to-arrow {
   color: var(--text-primary);
 }
 
-.exec-td-id {
-  width: 145px;           /* ancho suficiente para CB-XXX-YYY-00 en monospace */
-  white-space: nowrap;
+.exec-td-id,
+.exec-th-id {
+  width: 165px !important;
+  min-width: 165px !important;
+  max-width: 185px !important;
+  white-space: nowrap !important;
 }
 
 .exec-td-title {
@@ -3084,14 +3087,16 @@ body[data-theme="light"] .how-to-arrow {
 }
 
 .exec-case-id {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.68rem;
-  color: var(--accent-secondary);
-  background: rgba(34, 211, 238, 0.08);
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  white-space: nowrap;       /* nunca parte el ID en dos líneas */
-  display: inline-block;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.72rem !important;
+  color: var(--accent-secondary) !important;
+  background: rgba(34, 211, 238, 0.08) !important;
+  padding: 0.2rem 0.5rem !important;
+  border-radius: 4px !important;
+  white-space: nowrap !important;
+  display: inline-block !important;
+  word-break: keep-all !important;
+  overflow: visible !important;
 }
 
 .exec-title-cell {
@@ -11840,17 +11845,17 @@ body[data-theme="light"] .dash-filter-search {
 }
 
 .exec-case-id {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.68rem;
-  color: var(--accent-secondary);
-  background: rgba(34, 211, 238, 0.08);
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  white-space: nowrap;
-  display: inline-block;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.72rem !important;
+  color: var(--accent-secondary) !important;
+  background: rgba(34, 211, 238, 0.08) !important;
+  padding: 0.2rem 0.5rem !important;
+  border-radius: 4px !important;
+  white-space: nowrap !important;
+  display: inline-block !important;
+  word-break: keep-all !important;
+  overflow: visible !important;
 }
-
-/* exec-case-id: badge compacto para IDs como CB-FUN-GEN-01 */
 
 
 .exec-btn-cumple {

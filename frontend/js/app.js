@@ -337,11 +337,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const projInput = document.getElementById('projectName');
   if (projInput) projInput.value = currentProject;
 
-  // Start on step 1: Base de Conocimiento
-  switchModule('documents');
+  // Restaurar módulo activo (persiste entre recargas del navegador)
+  const savedModule = localStorage.getItem('prqa_active_module') || 'documents';
+  switchModule(savedModule);
 
-  loadTestCasesForExecution();
-  loadDashboard();
+  // Si el usuario estaba en el detalle de una matriz en ejecución, restaurarla
+  if (savedModule === 'execution') {
+    const savedMatrixKey = localStorage.getItem('prqa_active_matrix_key');
+    if (savedMatrixKey) {
+      setTimeout(() => {
+        if (typeof openExecMatrixDetail === 'function') openExecMatrixDetail(savedMatrixKey);
+      }, 350);
+    }
+  }
+
+  // Restaurar cronómetro si estaba corriendo al momento de recargar
+  setTimeout(() => {
+    if (typeof restoreActiveTimerSession === 'function') restoreActiveTimerSession();
+  }, 450);
 
   // Reloj HUD en tiempo real
   updateHudClock();
@@ -473,6 +486,7 @@ function switchModule(name) {
   if (navEl) navEl.classList.add('active');
 
   currentModule = name;
+  try { localStorage.setItem('prqa_active_module', name); } catch (_) {}
 
   // Recargar datos segun modulo
   if (name === 'generate') {
@@ -1900,6 +1914,7 @@ async function openExecMatrixDetail(encodedKey) {
   );
 
   _execCurrentGroup = { module, created_at: fileOrDate, cases: groupCases, sessionKey };
+  try { localStorage.setItem('prqa_active_matrix_key', encodedKey); } catch (_) {}
 
   // Actualizar título y meta
   const titleEl = document.getElementById('execDetailTitle');
@@ -2033,7 +2048,7 @@ function renderExecDetailCases(cases) {
     <table class="exec-table">
       <thead>
         <tr>
-          <th class="exec-th" style="width:110px;">ID</th>
+          <th class="exec-th exec-th-id" style="width:165px;min-width:165px;">ID</th>
           <th class="exec-th">Caso de Prueba</th>
           <th class="exec-th" style="width:110px;">Tipo</th>
           <th class="exec-th" style="width:100px;">Estado</th>
@@ -2099,6 +2114,7 @@ function showExecDetailView() {
 function backToExecMatrices() {
   _execCurrentGroup = null;
   _execAllCasesCache = [];
+  try { localStorage.removeItem('prqa_active_matrix_key'); } catch (_) {}
   showExecMatrixListView();
   loadTestCasesForExecution();
 }
@@ -3288,6 +3304,81 @@ function _resetTimerUI() {
       span.textContent = isCurrent ? 'En Cronómetro' : 'Cronometrar';
     }
   });
+}
+
+// ── Restaurar sesión de cronómetro activa tras recargar la página ──
+async function restoreActiveTimerSession() {
+  try {
+    const res = await fetch(`${API_BASE}/api/timer/current-running?project_name=${encodeURIComponent(currentProject)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.active) return;
+
+    _timerSessionId = data.session_id;
+    _timerSelectedCaseId = data.test_case_id;
+    _timerRunning = !data.is_paused;
+    _timerSeconds = Math.max(0, Math.round(data.elapsed_seconds || 0));
+
+    const startBtn = document.getElementById('btnTimerStart');
+    const stopBtn = document.getElementById('btnTimerStop');
+    const cancelBtn = document.getElementById('btnTimerCancel');
+    const indicator = document.getElementById('timerStateIndicator');
+    const stateText = document.getElementById('timerStateText');
+    const display = document.getElementById('timerDisplay');
+
+    const mins = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+    const secs = String(_timerSeconds % 60).padStart(2, '0');
+    if (display) display.textContent = `${mins}:${secs}.0`;
+
+    if (startBtn) startBtn.disabled = true;
+    if (stopBtn) stopBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (indicator) {
+      if (_timerRunning) indicator.classList.add('running');
+      else indicator.classList.remove('running');
+    }
+    if (stateText) stateText.textContent = _timerRunning ? 'CORRIENDO' : 'PAUSADO';
+
+    // Mostrar el caso seleccionado en el display del cronómetro
+    const caseTextEl = document.getElementById('timerSelectedCaseText');
+    const caseDisplayEl = document.getElementById('timerSelectedCaseDisplay');
+    if (caseDisplayEl) caseDisplayEl.style.borderColor = 'rgba(0,156,166,0.6)';
+    if (caseTextEl && data.case_id) {
+      caseTextEl.style.color = 'var(--text-primary)';
+      caseTextEl.innerHTML = `<strong style="color:var(--accent-secondary);font-family:monospace;">${data.case_id}</strong> — ${data.title || ''}`;
+    }
+
+    // Reanudar conteo en pantalla si estaba corriendo
+    clearInterval(_timerInterval);
+    if (_timerRunning) {
+      _timerInterval = setInterval(() => {
+        _timerSeconds++;
+        const m = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+        const s = String(_timerSeconds % 60).padStart(2, '0');
+        const d = document.getElementById('timerDisplay');
+        if (d) d.textContent = `${m}:${s}.0`;
+      }, 1000);
+    }
+
+    // Marcar el botón de la fila correspondiente
+    document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+      const isCurrent = btn.id === ('timer-btn-' + data.test_case_id);
+      const span = btn.querySelector('span');
+      if (isCurrent) {
+        btn.disabled = false;
+        btn.classList.add('active');
+        if (span) span.textContent = '⏱ Corriendo...';
+      } else {
+        btn.disabled = true;
+        btn.classList.remove('active');
+        btn.title = '⚠ Detén o cancela el cronómetro antes de cambiar de caso';
+        if (span) span.textContent = 'Cronometrar';
+      }
+    });
+
+  } catch (e) {
+    console.warn('No se pudo restaurar cronómetro activo:', e);
+  }
 }
 
 async function cancelTimer() {
