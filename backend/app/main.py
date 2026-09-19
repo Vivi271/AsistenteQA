@@ -22,7 +22,7 @@ def now_co():
     """Retorna la hora actual en Colombia (UTC-5)."""
     return datetime.now(TZ_COLOMBIA)
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
@@ -577,6 +577,18 @@ class GenerateTestCasesRequest(BaseModel):
     doc_names: Optional[List[str]] = None
 
 
+# Flags de cancelacion por proyecto: {project_name: True/False}
+_cancel_flags: dict = {}
+
+
+@app.post("/api/test-cases/cancel")
+async def cancel_generation(project_name: str):
+    """Cancela la generacion en curso para el proyecto indicado.
+    Solo tiene efecto si la generacion aun no ha terminado de guardar."""
+    _cancel_flags[project_name] = True
+    return {"cancelled": True}
+
+
 @app.post("/api/test-cases/generate")
 async def generate_test_cases(req: GenerateTestCasesRequest):
     """Genera casos de prueba automáticamente a partir de un requerimiento y contexto documental."""
@@ -607,6 +619,11 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
             doc_names=target_doc_names if target_doc_names else None,
         )
 
+        # Verificar si el usuario canceló EXPLICITAMENTE via botón (no por refresh)
+        if _cancel_flags.pop(req.project_name, False):
+            print(f"[generate] Cancelado explicitamente — descartando {len(test_cases or [])} casos generados")
+            return {}
+
         if not test_cases or len(test_cases) == 0:
             raise HTTPException(500, "El modelo local de IA no retornó casos de prueba válidos. Por favor presiona 'Generar' nuevamente.")
 
@@ -614,14 +631,46 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
         db = SessionLocal()
         saved_db_cases = []
         try:
+            # ── Eliminar casos previos del mismo proyecto+módulo para evitar duplicados
+            existing = db.query(TestCase).filter(
+                TestCase.project_name == req.project_name,
+                TestCase.module == req.module
+            ).all()
+            if existing:
+                existing_ids = [tc.id for tc in existing]
+                # Borrar ejecuciones vinculadas primero (FK)
+                db.query(TestExecution).filter(TestExecution.test_case_id.in_(existing_ids)).delete(synchronize_session=False)
+                # Borrar los casos anteriores
+                db.query(TestCase).filter(TestCase.id.in_(existing_ids)).delete(synchronize_session=False)
+                print(f"[generate] Reemplazando {len(existing)} casos anteriores de '{req.module}'")
+
+            # ── Prefijo de módulo: 3 letras del nombre (ej. "General" → "GEN", "Chat bot" → "CHA")
+            mod_code = ''.join(c for c in req.module.upper() if c.isalpha())[:3] or "MOD"
+
             saved_cases = []
             for i, tc in enumerate(test_cases):
                 steps_data = tc.get("steps", [])
                 steps_json = json.dumps(steps_data, ensure_ascii=False) if isinstance(steps_data, list) else str(steps_data)
 
+                # Tipo abreviado para el ID: FUNCIONALES → FUN, SEGURIDAD → SEC, etc.
+                raw_type = (tc.get("test_type") or "GEN").upper()
+                type_map = {
+                    "FUNCIONALES": "FUN", "FUNCIONAL": "FUN",
+                    "SEGURIDAD": "SEC", "SECURITY": "SEC",
+                    "RENDIMIENTO": "REN", "PERFORMANCE": "REN",
+                    "INTEGRACION": "INT", "INTEGRACIÓN": "INT", "INTEGRATION": "INT",
+                    "CASOS NEGATIVOS": "NEG", "NEGATIVO": "NEG", "NEGATIVE": "NEG",
+                    "USABILIDAD": "USA", "USABILITY": "USA",
+                    "REGRESION": "REG", "REGRESIÓN": "REG",
+                }
+                type_code = next((v for k, v in type_map.items() if k in raw_type), raw_type[:3])
+
+                # ID secuencial siempre relativo a esta generacion: CB-FUN-GEN-01, CB-SEC-GEN-02 ...
+                sequential_case_id = f"CB-{type_code}-{mod_code}-{i+1:02d}"
+
                 db_case = TestCase(
                     id=str(uuid.uuid4()),
-                    case_id=tc.get("case_id") or tc.get("id", f"PRQA-{i+1:03d}"),
+                    case_id=sequential_case_id,
                     project_name=req.project_name,
                     module=req.module,
                     title=tc["title"],
@@ -675,6 +724,8 @@ async def generate_test_cases(req: GenerateTestCasesRequest):
 
     except Exception as e:
         raise HTTPException(500, f"Error generando casos de prueba: {str(e)}")
+
+
 
 
 @app.get("/api/test-cases/exports")
@@ -1062,8 +1113,14 @@ async def delete_all_test_cases(project_name: str):
 
 
 @app.get("/api/test-cases/export/excel")
-async def export_test_cases_excel(project_name: Optional[str] = None):
-    """Exporta los casos de prueba en formato Excel (plantilla EOPA)."""
+async def export_test_cases_excel(
+    project_name: Optional[str] = None,
+    module: Optional[str] = None,
+    export_file: Optional[str] = None,
+):
+    """Exporta los casos de prueba en formato Excel (plantilla EOPA) con tiempos de ejecucion incluidos.
+    - module: filtra por modulo (para separar matrices del mismo proyecto)
+    - export_file: filtra por nombre de archivo exacto (para separar dos matrices del mismo modulo)"""
 
     from excel_exporter import export_to_eopa_excel
     import tempfile
@@ -1073,20 +1130,95 @@ async def export_test_cases_excel(project_name: Optional[str] = None):
         query = db.query(TestCase)
         if project_name:
             query = query.filter(TestCase.project_name == project_name)
+        if export_file:
+            # Filtro mas preciso: archivo exacto de esa generacion
+            query = query.filter(TestCase.export_file == export_file)
+        elif module:
+            # Fallback: filtro por modulo si no se conoce el archivo exacto
+            query = query.filter(TestCase.module.ilike(f"%{module}%"))
         cases = query.all()
 
         if not cases:
             raise HTTPException(404, "No hay casos de prueba para exportar.")
 
+        # Construir mapa {tc_id -> execution_time_seconds} de la ultima ejecucion cronometrada
+        tc_ids = [tc.id for tc in cases]
+        executions_map = {}
+        for tc_id in tc_ids:
+            last_exec = (
+                db.query(TestExecution)
+                .filter(
+                    TestExecution.test_case_id == tc_id,
+                    TestExecution.execution_time_seconds.isnot(None),
+                )
+                .order_by(TestExecution.executed_at.desc())
+                .first()
+            )
+            if last_exec:
+                executions_map[tc_id] = last_exec.execution_time_seconds
+
         # Generar Excel temporal
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             tmp_path = tmp.name
 
-        export_to_eopa_excel(cases, tmp_path, project_name or "PRQA")
+        export_to_eopa_excel(cases, tmp_path, project_name or "PRQA", executions_map=executions_map)
+
+        file_label = f"{module or project_name or 'PRQA'}"
+        return FileResponse(
+            tmp_path,
+            filename=f"CasosPrueba_{file_label}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    finally:
+        db.close()
+
+
+@app.get("/api/timer/export/excel")
+async def export_timer_excel(project_name: Optional[str] = None):
+    """Genera y descarga el reporte Excel de tiempos de ejecucion cronometrados del proyecto."""
+
+    from excel_exporter import export_timer_report
+    import tempfile
+
+    db = SessionLocal()
+    try:
+        query = db.query(TestExecution).filter(TestExecution.execution_time_seconds.isnot(None))
+        if project_name:
+            tc_ids = [tc.id for tc in db.query(TestCase).filter(TestCase.project_name == project_name).all()]
+            query = query.filter(TestExecution.test_case_id.in_(tc_ids))
+
+        executions_db = query.order_by(TestExecution.executed_at.desc()).all()
+
+        executions = []
+        for e in executions_db:
+            tc = db.query(TestCase).filter(TestCase.id == e.test_case_id).first()
+            executions.append({
+                "execution_id": e.id,
+                "test_case_id": e.test_case_id,
+                "case_id": tc.case_id if tc else "",
+                "title": tc.title if tc else "(eliminado)",
+                "module": tc.module if tc else "",
+                "test_type": tc.test_type if tc else "",
+                "result": e.result,
+                "severity": e.severity,
+                "incident_type": e.incident_type,
+                "incident_state": e.incident_state,
+                "execution_time_seconds": e.execution_time_seconds,
+                "notes": e.notes,
+                "executed_at": (e.executed_at.isoformat() + "Z") if e.executed_at else None,
+            })
+
+        if not executions:
+            raise HTTPException(404, "No hay ejecuciones cronometradas para exportar.")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        export_timer_report(executions, tmp_path, project_name or "PRQA")
 
         return FileResponse(
             tmp_path,
-            filename=f"CasosPrueba_{project_name or 'PRQA'}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            filename=f"Tiempos_Ejecucion_{project_name or 'PRQA'}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     finally:
@@ -1385,6 +1517,24 @@ async def timer_stop(req: TimerStopRequest):
             "execution_id": execution.id,
             "status": "completed"
         }
+    finally:
+        db.close()
+
+
+@app.delete("/api/timer/cancel")
+async def timer_cancel(session_id: str):
+    """Cancela y descarta el cronómetro sin guardar ningún resultado."""
+    db = SessionLocal()
+    try:
+        session = db.query(TimerSession).filter(TimerSession.id == session_id).first()
+        if not session:
+            raise HTTPException(404, "Sesión de cronómetro no encontrada.")
+        # Marcar como detenida sin registrar ejecución
+        session.is_running = False
+        session.is_paused = False
+        session.stopped_at = datetime.now()
+        db.commit()
+        return {"status": "cancelled", "session_id": session_id}
     finally:
         db.close()
 

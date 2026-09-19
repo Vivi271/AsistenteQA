@@ -1450,6 +1450,9 @@ function copyTestCaseGherkin(caseId) {
   });
 }
 
+// AbortController para cancelar generacion en curso
+let _generateAbortController = null;
+
 async function generateTestCases() {
   const btn = document.getElementById('generateBtn');
   const loading = document.getElementById('generatorLoading');
@@ -1475,6 +1478,14 @@ async function generateTestCases() {
 
   btn.disabled = true;
   loading.classList.remove('hidden');
+
+  // Mostrar boton Cancelar
+  const cancelBtn = document.getElementById('generateCancelBtn');
+  if (cancelBtn) cancelBtn.classList.remove('hidden');
+
+  // Crear AbortController para poder cancelar el fetch en cualquier momento
+  _generateAbortController = new AbortController();
+  const { signal } = _generateAbortController;
 
   // ── Contador de tiempo en vivo + mensajes de estado ──────────────
   const _genStartTime = Date.now();
@@ -1506,6 +1517,7 @@ async function generateTestCases() {
     const response = await fetch(`${API_BASE}/api/test-cases/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         requirement_text: requirementText,
         project_name: effectiveProject,
@@ -1537,25 +1549,38 @@ async function generateTestCases() {
     }
 
   } catch (e) {
-    showToast(e.message, 'error');
-    const container = document.getElementById('genPreviewContainer');
-    if (container) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color:var(--accent-danger)">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <p>Error al generar</p>
-          <span>${e.message}</span>
-        </div>
-      `;
+    if (e.name === 'AbortError') {
+      showToast('Generación cancelada.', 'warning');
+    } else {
+      showToast(e.message, 'error');
+      const container = document.getElementById('genPreviewContainer');
+      if (container) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color:var(--accent-danger)">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <p>Error al generar</p>
+            <span>${e.message}</span>
+          </div>
+        `;
+      }
     }
   } finally {
     clearInterval(_genTimerInterval);
     loading.classList.add('hidden');
     btn.disabled = false;
+    _generateAbortController = null;
+    const cancelBtn = document.getElementById('generateCancelBtn');
+    if (cancelBtn) cancelBtn.classList.add('hidden');
     if (_genStatusEl) _genStatusEl.textContent = 'Consultando base de conocimiento y generando casos de prueba...';
     if (_genTimeEl) _genTimeEl.textContent = 'Esto puede tardar entre 20 y 45 segundos según el modelo';
+  }
+}
+
+function cancelGeneration() {
+  if (_generateAbortController) {
+    _generateAbortController.abort();
   }
 }
 
@@ -1943,18 +1968,16 @@ function renderExecDetailCases(cases) {
         </td>
         <td class="exec-td exec-td-actions" style="text-align:right;">
           <div class="exec-actions-bar">
-            <button type="button" class="exec-action-icon-btn btn-preview" onclick="openCaseDetailFromId('${tc.db_id}')" title="👁 Previsualizar caso de prueba">
+            <button type="button" class="exec-action-icon-btn btn-preview" onclick="openCaseDetailFromId('${tc.db_id}')" title="👁 Ver detalles completos del caso">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            </button>
-            <button type="button" class="exec-action-icon-btn btn-timer ${isTimerSelected ? 'active' : ''}" id="timer-btn-${tc.db_id}" onclick="selectCaseForTimer('${tc.db_id}')" title="⏱ Seleccionar para cronómetro">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             </button>
             <button type="button" class="exec-action-icon-btn btn-edit" onclick="openEditFromId('${tc.db_id}')" title="✏️ Editar caso de prueba">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <span class="exec-actions-divider"></span>
-            <button type="button" class="exec-btn-sm exec-btn-cumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10003; Cumple</button>
-            <button type="button" class="exec-btn-sm exec-btn-nocumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10007; No Cumple</button>
+            <button type="button" class="exec-btn-timer-pill ${isTimerSelected ? 'active' : ''}" id="timer-btn-${tc.db_id}" onclick="selectCaseForTimer('${tc.db_id}')" title="Seleccionar para cronómetro y ejecución">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span id="timer-btn-text-${tc.db_id}">${isTimerSelected ? 'En Cronómetro' : 'Cronometrar'}</span>
+            </button>
           </div>
         </td>
       </tr>
@@ -1969,7 +1992,7 @@ function renderExecDetailCases(cases) {
           <th class="exec-th">Caso de Prueba</th>
           <th class="exec-th" style="width:110px;">Tipo</th>
           <th class="exec-th" style="width:100px;">Estado</th>
-          <th class="exec-th" style="width:235px;text-align:right;">Acciones / Resultado</th>
+          <th class="exec-th" style="width:170px;text-align:right;">Acciones</th>
         </tr>
       </thead>
       <tbody id="execDetailTableBody">${rows}</tbody>
@@ -2260,7 +2283,6 @@ function openExecutionModal(dbId, caseId, title) {
   }
 
   document.getElementById('execNotes').value = '';
-  document.getElementById('noCumpleFields').style.display = 'none';
   document.getElementById('saveExecutionBtn').disabled = true;
 
   document.getElementById('btnCumple').classList.remove('selected');
@@ -2299,7 +2321,6 @@ function selectResult(result) {
   selectedResult = result;
   document.getElementById('btnCumple').classList.toggle('selected', result === 'CUMPLE');
   document.getElementById('btnNoCumple').classList.toggle('selected', result === 'NO CUMPLE');
-  document.getElementById('noCumpleFields').style.display = result === 'NO CUMPLE' ? 'block' : 'none';
   document.getElementById('saveExecutionBtn').disabled = false;
 }
 
@@ -2313,9 +2334,6 @@ async function saveExecution() {
   }
 
   const notes = document.getElementById('execNotes')?.value.trim() || null;
-  const severity = document.getElementById('execSeverity')?.value || 'Media';
-  const incidentType = document.getElementById('execIncidentType')?.value || 'Funcional';
-  const incidentState = document.getElementById('execIncidentState')?.value || 'Abierto';
 
   // Si proviene del cronómetro activo
   if (_timerSessionId) {
@@ -2326,10 +2344,7 @@ async function saveExecution() {
         body: JSON.stringify({
           session_id: _timerSessionId,
           result: selectedResult,
-          notes: notes || 'Registrado desde el cronómetro',
-          severity: selectedResult === 'NO CUMPLE' ? severity : null,
-          incident_type: selectedResult === 'NO CUMPLE' ? incidentType : null,
-          incident_state: selectedResult === 'NO CUMPLE' ? incidentState : null,
+          notes: notes || '',
         })
       });
       if (!res.ok) {
@@ -2337,21 +2352,7 @@ async function saveExecution() {
         throw new Error(err.detail || 'Error al registrar fin del cronómetro');
       }
 
-      clearInterval(_timerInterval);
-      _timerRunning = false;
-      _timerSessionId = null;
-
-      const startBtn = document.getElementById('btnTimerStart');
-      const stopBtn = document.getElementById('btnTimerStop');
-      const indicator = document.getElementById('timerStateIndicator');
-      const stateText = document.getElementById('timerStateText');
-      const display = document.getElementById('timerDisplay');
-
-      if (startBtn) startBtn.disabled = false;
-      if (stopBtn) stopBtn.disabled = true;
-      if (indicator) indicator.classList.remove('running');
-      if (stateText) stateText.textContent = 'LISTO';
-      if (display) display.textContent = '00:00.0';
+      _resetTimerUI();
 
       showToast(`✓ Tiempo registrado: ${selectedResult}`, 'success');
       closeExecutionModal();
@@ -2378,12 +2379,6 @@ async function saveExecution() {
     notes: notes,
     tester_name: null,
   };
-
-  if (selectedResult === 'NO CUMPLE') {
-    payload.severity = severity;
-    payload.incident_type = incidentType;
-    payload.incident_state = incidentState;
-  }
 
   try {
     const res = await fetch(`${API_BASE}/api/execution/register`, {
@@ -3143,11 +3138,9 @@ async function onTimerMatrixSelected() {
   }
 }
 
+
 async function startTimer() {
   // Obtener el caso: primero el seleccionado desde la tabla integrada, luego el dropdown (pestaña Historial)
-  const testerInput = document.getElementById('timerTesterInput');
-  const testerName = testerInput ? testerInput.value.trim() : '';
-
   let tcId = _timerSelectedCaseId;
 
   // Si no hay caso seleccionado desde la tabla, intentar con el dropdown (vista Historial)
@@ -3167,7 +3160,6 @@ async function startTimer() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         test_case_id: tcId,
-        tester_name: testerName,
         project_name: currentProject
       })
     });
@@ -3180,13 +3172,31 @@ async function startTimer() {
 
     const startBtn = document.getElementById('btnTimerStart');
     const stopBtn = document.getElementById('btnTimerStop');
+    const cancelBtn = document.getElementById('btnTimerCancel');
     const indicator = document.getElementById('timerStateIndicator');
     const stateText = document.getElementById('timerStateText');
 
     if (startBtn) startBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
     if (indicator) indicator.classList.add('running');
     if (stateText) stateText.textContent = 'CORRIENDO';
+
+    // Actualizar botón del caso actual y bloquear los de las otras filas
+    document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+      const isCurrent = btn.id === ('timer-btn-' + tcId);
+      const span = btn.querySelector('span');
+      if (isCurrent) {
+        btn.disabled = false;
+        btn.classList.add('active');
+        if (span) span.textContent = '⏱ Corriendo...';
+      } else {
+        btn.disabled = true;
+        btn.classList.remove('active');
+        btn.title = '⚠ Detén o cancela el cronómetro antes de cambiar de caso';
+        if (span) span.textContent = 'Cronometrar';
+      }
+    });
 
     clearInterval(_timerInterval);
     _timerInterval = setInterval(() => {
@@ -3202,6 +3212,54 @@ async function startTimer() {
     showToast('Error: ' + e.message, 'error');
   }
 }
+
+function _resetTimerUI() {
+  clearInterval(_timerInterval);
+  _timerRunning = false;
+  _timerSessionId = null;
+  _timerSeconds = 0;
+
+  const startBtn = document.getElementById('btnTimerStart');
+  const stopBtn = document.getElementById('btnTimerStop');
+  const cancelBtn = document.getElementById('btnTimerCancel');
+  const indicator = document.getElementById('timerStateIndicator');
+  const stateText = document.getElementById('timerStateText');
+  const display = document.getElementById('timerDisplay');
+
+  if (startBtn) startBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+  if (indicator) indicator.classList.remove('running');
+  if (stateText) stateText.textContent = 'LISTO';
+  if (display) display.textContent = '00:00.0';
+
+  // Desbloquear todos los botones de la tabla y restaurar etiquetas
+  document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+    btn.disabled = false;
+    btn.title = 'Seleccionar para cronómetro y ejecución';
+    const isCurrent = btn.id === ('timer-btn-' + _timerSelectedCaseId);
+    const span = btn.querySelector('span');
+    if (span) {
+      span.textContent = isCurrent ? 'En Cronómetro' : 'Cronometrar';
+    }
+  });
+}
+
+async function cancelTimer() {
+  if (!_timerSessionId) return;
+  if (!confirm('¿Cancelar el cronómetro? El tiempo transcurrido NO se guardará y el caso seguirá como Pendiente.')) return;
+
+  const sessionId = _timerSessionId;
+  _resetTimerUI();
+
+  try {
+    await fetch(`${API_BASE}/api/timer/cancel?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+    showToast('🗑 Cronómetro cancelado — sin cambios guardados', 'info');
+  } catch (e) {
+    // ignorar error de red, ya se reseteó UI
+  }
+}
+
 
 function stopTimer() {
   if (!_timerSessionId) return;
@@ -3376,8 +3434,31 @@ async function loadTimerStats() {
     }
 
     // 5. Mini historial en el panel lateral integrado (últimas 5 sesiones)
+    //    Filtrar al grupo activo si hay uno seleccionado
     if (miniHistory) {
-      const history = data.history || [];
+      const allHistory = data.history || [];
+
+      // Si hay un grupo (matriz) activo, mostrar solo sus casos
+      let history = allHistory;
+      if (_execCurrentGroup && _execCurrentGroup.cases && _execCurrentGroup.cases.length > 0) {
+        // Filtrar por UUID (db_id) para no mezclar con matrices antiguas que comparten el mismo case_id textual
+        const activeCaseUUIDs = new Set(_execCurrentGroup.cases.map(c => c.db_id || c.id));
+        history = allHistory.filter(s => activeCaseUUIDs.has(s.test_case_id));
+
+        // Recalcular KPIs del panel solo con los casos del grupo activo
+        const groupExecs = history;
+        const groupTotal = groupExecs.length;
+        const groupSumSec = groupExecs.reduce((a, s) => a + (s.execution_time_seconds || 0), 0);
+        const groupAvg = groupTotal > 0 ? Math.round(groupSumSec / groupTotal) : 0;
+        const groupTotStr = groupSumSec >= 60
+          ? `${Math.floor(groupSumSec / 60)}m ${Math.round(groupSumSec % 60)}s`
+          : `${Math.round(groupSumSec)}s`;
+
+        if (kpiCount) kpiCount.textContent = groupTotal;
+        if (kpiAvg)   kpiAvg.textContent   = `${groupAvg}s`;
+        if (kpiTotal) kpiTotal.textContent  = groupTotStr;
+      }
+
       const last5 = history.slice(0, 5);
       if (last5.length === 0) {
         miniHistory.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);text-align:center;padding:0.75rem 0;">Sin registros aún</div>';
@@ -3386,12 +3467,14 @@ async function loadTimerStats() {
           const secs = Math.round(s.execution_time_seconds || 0);
           const t = secs >= 60 ? `${Math.floor(secs / 60)}m${secs % 60}s` : `${secs}s`;
           const badgeCls = s.result === 'CUMPLE' ? 'status-cumple' : s.result === 'NO CUMPLE' ? 'status-nocumple' : 'status-pending';
+          const isCritical = s.result === 'NO CUMPLE';
           return `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0.5rem;background:var(--bg-panel);border-radius:6px;gap:0.4rem;">
               <span style="font-size:0.68rem;color:var(--accent-secondary);font-weight:600;flex-shrink:0;">${s.case_id || '?'}</span>
               <span style="font-size:0.68rem;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.title || '—'}</span>
               <span style="font-size:0.7rem;font-weight:700;color:var(--text-primary);flex-shrink:0;">${t}</span>
               <span class="exec-status ${badgeCls}" style="font-size:0.62rem;padding:0.1rem 0.35rem;flex-shrink:0;">${s.result || '—'}</span>
+              <span style="font-size:0.6rem;font-weight:700;flex-shrink:0;padding:0.1rem 0.3rem;border-radius:4px;${isCritical ? 'background:rgba(239,68,68,0.15);color:#ef4444;' : 'background:rgba(16,185,129,0.1);color:#10b981;'}">${isCritical ? '🔴 Crítico' : '✓ OK'}</span>
             </div>
           `;
         }).join('');
@@ -3423,10 +3506,39 @@ async function deleteTimerExecution(executionId) {
   }
 }
 
-function exportTimedExcel() {
-  const url = `${API_BASE}/api/test-cases/export/excel?project_name=${encodeURIComponent(currentProject)}`;
-  window.open(url, '_blank');
+async function exportTimedExcel() {
+  // Exporta la plantilla EOPA filtrada por el modulo Y archivo exacto de la matriz activa
+  try {
+    const activeModule   = (_execCurrentGroup && _execCurrentGroup.module)      ? _execCurrentGroup.module      : null;
+    const activeFile     = (_execCurrentGroup && _execCurrentGroup.created_at)   ? _execCurrentGroup.created_at  : null;
+    // created_at puede ser el export_file (nombre .xlsx) o una fecha ISO
+    const isExportFile   = activeFile && activeFile.endsWith('.xlsx');
+
+    let url = `${API_BASE}/api/test-cases/export/excel?project_name=${encodeURIComponent(currentProject)}`;
+    if (activeModule)              url += `&module=${encodeURIComponent(activeModule)}`;
+    if (isExportFile && activeFile) url += `&export_file=${encodeURIComponent(activeFile)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.detail || 'No hay casos para exportar aún.', 'error');
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const fecha = new Date().toLocaleDateString('es-CO').replace(/\//g, '-');
+    const label = activeModule || currentProject;
+    a.download = `Casos_${label}_${fecha}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('✅ Plantilla EOPA exportada con tiempos de ejecución', 'success');
+  } catch (e) {
+    showToast('Error al exportar: ' + e.message, 'error');
+  }
 }
+
 
 // ══════════════════════════════════════════════════════════════
 // FILTROS Y MODALES DE BASE DE CONOCIMIENTO & EJECUCIÓN
@@ -4288,6 +4400,12 @@ function openEditFromId(tcId) {
 let _timerSelectedCaseId = null;
 
 function selectCaseForTimer(tcId) {
+  // Evitar cambiar de caso si hay una medición activa en curso
+  if (_timerRunning) {
+    showToast('⚠️ El cronómetro está corriendo. Detén, finaliza o cancela la sesión actual antes de cambiar de caso.', 'warning');
+    return;
+  }
+
   const tc = (window._execCasesMap || {})[tcId];
   if (!tc) return;
 
@@ -4298,10 +4416,18 @@ function selectCaseForTimer(tcId) {
   const row = document.getElementById('exec-row-' + tcId);
   if (row) row.classList.add('timer-row-selected');
 
-  // Actualizar estado activo en botones de cronómetro de la tabla
-  document.querySelectorAll('.exec-action-icon-btn.btn-timer').forEach(btn => btn.classList.remove('active'));
+  // Actualizar estado activo y texto en botones de la tabla
+  document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+    btn.classList.remove('active');
+    const span = btn.querySelector('span');
+    if (span) span.textContent = 'Cronometrar';
+  });
   const activeBtn = document.getElementById('timer-btn-' + tcId);
-  if (activeBtn) activeBtn.classList.add('active');
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    const span = activeBtn.querySelector('span');
+    if (span) span.textContent = 'En Cronómetro';
+  }
 
   // Actualizar el display en el panel del cronómetro
   const display = document.getElementById('timerSelectedCaseDisplay');
@@ -4328,9 +4454,23 @@ function selectCaseForTimer(tcId) {
   showToast(`⏱ Caso vinculado al cronómetro: ${tc.case_id}`, 'info');
 }
 
+function recordManualResultForSelectedCase() {
+  if (_timerRunning) {
+    showToast('⚠️ Hay un cronómetro activo en curso. Detén o cancela la sesión primero.', 'warning');
+    return;
+  }
+  let tc = _timerSelectedCaseId && window._execCasesMap ? window._execCasesMap[_timerSelectedCaseId] : null;
+  if (!tc) {
+    showToast('Por favor selecciona un caso de la lista primero.', 'info');
+    return;
+  }
+  openExecutionModal(tc.db_id, tc.case_id, tc.title);
+}
+
 window.openCaseDetailFromId = openCaseDetailFromId;
 window.openEditFromId = openEditFromId;
 window.selectCaseForTimer = selectCaseForTimer;
+window.recordManualResultForSelectedCase = recordManualResultForSelectedCase;
 
 // ══════════════════════════════════════════════════════════════
 // MÓDULO: VER DETALLES COMPLETOS DEL CASO DE PRUEBA

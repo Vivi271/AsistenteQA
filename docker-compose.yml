@@ -64,7 +64,7 @@ services:
       - prqa_chroma:/app/chroma_db
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - LLM_MODEL=${LLM_MODEL:-llama3.2:3b}
+      - LLM_MODEL=${LLM_MODEL:-gemma3:4b}
       - CHROMA_PATH=/app/chroma_db
       - KNOWLEDGE_BASE_PATH=/app/knowledge_base
       - STATIC_PATH=/app/static

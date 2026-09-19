@@ -3060,7 +3060,8 @@ body[data-theme="light"] .how-to-arrow {
 }
 
 .exec-td-id {
-  width: 120px;
+  width: 145px;           /* ancho suficiente para CB-XXX-YYY-00 en monospace */
+  white-space: nowrap;
 }
 
 .exec-td-title {
@@ -3089,6 +3090,8 @@ body[data-theme="light"] .how-to-arrow {
   background: rgba(34, 211, 238, 0.08);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
+  white-space: nowrap;       /* nunca parte el ID en dos líneas */
+  display: inline-block;
 }
 
 .exec-title-cell {
@@ -11837,15 +11840,18 @@ body[data-theme="light"] .dash-filter-search {
 }
 
 .exec-case-id {
-  font-family: var(--font-hud);
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
   color: var(--accent-secondary);
-  background: rgba(0, 229, 255, 0.08);
-  border: 1px solid rgba(0, 229, 255, 0.2);
-  padding: 0.2rem 0.5rem;
+  background: rgba(34, 211, 238, 0.08);
+  padding: 0.15rem 0.4rem;
   border-radius: 4px;
+  white-space: nowrap;
+  display: inline-block;
 }
+
+/* exec-case-id: badge compacto para IDs como CB-FUN-GEN-01 */
+
 
 .exec-btn-cumple {
   background: rgba(16, 185, 129, 0.1) !important;
@@ -14483,6 +14489,42 @@ body[data-theme="dark"] .timer-digital-display {
   color: #ffffff;
 }
 
+/* Botón cancelar: fondo neutro / rojo al hover */
+.timer-btn-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.2));
+  font-weight: 600;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.timer-btn-cancel:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.timer-btn-cancel:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.timer-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .timer-btn-start:disabled,
 .timer-btn-stop:disabled {
   opacity: 0.35;
@@ -15786,6 +15828,11 @@ body[data-theme="dark"] .doc-multiselect-btn:focus {
   padding: 1rem;
   position: sticky;
   top: 1rem;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color, rgba(148,163,184,0.3)) transparent;
 }
 
 .exec-timer-col-header {
@@ -15920,4 +15967,43 @@ body[data-theme="dark"] .doc-multiselect-btn:focus {
 
 .exec-title-cell:hover {
   color: var(--accent-primary, #009ca6);
+}
+
+/* Botón estilizado 'Cronometrar' en la tabla de ejecución */
+.exec-btn-timer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.07);
+  color: #6366f1;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.exec-btn-timer-pill:hover:not(:disabled) {
+  background: #6366f1;
+  color: #ffffff;
+  border-color: #6366f1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.exec-btn-timer-pill.active {
+  background: #6366f1;
+  color: #ffffff;
+  border-color: #6366f1;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+}
+
+.exec-btn-timer-pill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
 }
