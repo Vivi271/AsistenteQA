@@ -1829,7 +1829,7 @@ function renderExecMatrixCards(cases) {
           <!-- Barra de progreso -->
           <div class="exec-matrix-progress-wrap">
             <div class="exec-matrix-progress-bar">
-              <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#009ca6,#00e5ff);border-radius:9999px;transition:width 0.4s ease;"></div>
+              <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#009ca6,#38bdf8);border-radius:9999px;transition:width 0.4s ease;"></div>
             </div>
             <span class="exec-matrix-pct">${pct}%</span>
           </div>
@@ -3007,7 +3007,7 @@ function renderDashboardWithData(metrics, cases) {
   if (typeBadge) typeBadge.textContent = `${typeEntries.length} Tipos`;
 
   const typeColors = {
-    'FUNCIONALES': '#00e5ff', 'CASOS NEGATIVOS': '#10b981', 'SEGURIDAD': '#f59e0b',
+    'FUNCIONALES': '#38bdf8', 'CASOS NEGATIVOS': '#10b981', 'SEGURIDAD': '#f59e0b',
     'NO FUNCIONALES': '#3b82f6', 'CARGA': '#6366f1', 'INTEGRACION': '#8b5cf6',
     'ESTRESS': '#ec4899', 'COMPATIBILIDAD': '#14b8a6', 'RESILIENCIA': '#f97316'
   };
@@ -3043,7 +3043,7 @@ function renderDashboardWithData(metrics, cases) {
     { label: 'Bloqueante', color: '#ef4444', count: 0 },
     { label: 'Crítico', color: '#f59e0b', count: 0 },
     { label: 'Tolerable', color: '#10b981', count: 0 },
-    { label: 'Interfaz de usuario', color: '#00e5ff', count: 0 }
+    { label: 'Interfaz de usuario', color: '#38bdf8', count: 0 }
   ];
 
   cases.forEach(c => {
@@ -3923,24 +3923,24 @@ function showOnboarding() {
       text-align: center;
     ">
       <div style="font-size:2.5rem; margin-bottom:0.5rem;">👋</div>
-      <h2 style="font-size:1.5rem; font-weight:700; margin:0 0 0.5rem; background: linear-gradient(135deg,#009ca6,#22d3ee); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">Bienvenida a PRQA</h2>
+      <h2 style="font-size:1.5rem; font-weight:700; margin:0 0 0.5rem; background: linear-gradient(135deg,#009ca6,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">Bienvenida a PRQA</h2>
       <p style="color:#94a3b8; margin:0 0 2rem; font-size:0.9rem;">Tu asistente de QA con IA. Sigue estos 3 pasos para empezar:</p>
 
       <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; margin-bottom:2rem; text-align:left;">
         <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(0,156,166,0.2); border-radius:12px; padding:1.25rem;">
-          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#009ca6,#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;margin-bottom:0.75rem;">1</div>
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#009ca6,#38bdf8);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;margin-bottom:0.75rem;">1</div>
           <div style="font-weight:600; font-size:0.85rem; margin-bottom:0.4rem;">Subir Documentos</div>
-          <div style="font-size:0.75rem; color:#94a3b8; line-height:1.5;">Ve a <strong style="color:#22d3ee;">Base de Conocimiento</strong> y sube tu MTR o documento de requerimientos (PDF, DOCX, etc.)</div>
+          <div style="font-size:0.75rem; color:#94a3b8; line-height:1.5;">Ve a <strong style="color:#38bdf8;">Base de Conocimiento</strong> y sube tu MTR o documento de requerimientos (PDF, DOCX, etc.)</div>
         </div>
         <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(0,156,166,0.2); border-radius:12px; padding:1.25rem;">
-          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#009ca6,#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;margin-bottom:0.75rem;">2</div>
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#009ca6,#38bdf8);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;margin-bottom:0.75rem;">2</div>
           <div style="font-weight:600; font-size:0.85rem; margin-bottom:0.4rem;">Generar Casos</div>
-          <div style="font-size:0.75rem; color:#94a3b8; line-height:1.5;">Ve a <strong style="color:#22d3ee;">Generar Casos</strong>, selecciona el documento, pega el requerimiento y presiona Generar.</div>
+          <div style="font-size:0.75rem; color:#94a3b8; line-height:1.5;">Ve a <strong style="color:#38bdf8;">Generar Casos</strong>, selecciona el documento, pega el requerimiento y presiona Generar.</div>
         </div>
         <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(0,156,166,0.2); border-radius:12px; padding:1.25rem;">
-          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#009ca6,#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;margin-bottom:0.75rem;">3</div>
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#009ca6,#38bdf8);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;margin-bottom:0.75rem;">3</div>
           <div style="font-weight:600; font-size:0.85rem; margin-bottom:0.4rem;">Ejecutar y Registrar</div>
-          <div style="font-size:0.75rem; color:#94a3b8; line-height:1.5;">En <strong style="color:#22d3ee;">Ejecutar Pruebas</strong>, abre cada caso, prueba el sistema y marca CUMPLE o NO CUMPLE.</div>
+          <div style="font-size:0.75rem; color:#94a3b8; line-height:1.5;">En <strong style="color:#38bdf8;">Ejecutar Pruebas</strong>, abre cada caso, prueba el sistema y marca CUMPLE o NO CUMPLE.</div>
         </div>
       </div>
 
@@ -3948,7 +3948,7 @@ function showOnboarding() {
 
       <button onclick="closeOnboarding()" style="
         padding: 0.75rem 2.5rem;
-        background: linear-gradient(135deg, #009ca6, #22d3ee);
+        background: linear-gradient(135deg, #009ca6, #38bdf8);
         color: #fff; border: none; border-radius: 10px;
         font-family: 'Inter', sans-serif; font-size: 0.95rem; font-weight: 600;
         cursor: pointer; transition: all 0.2s;
