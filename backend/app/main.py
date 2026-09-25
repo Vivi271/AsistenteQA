@@ -1630,9 +1630,15 @@ async def timer_stats(project_name: Optional[str] = None):
         by_type = {}
         by_rf   = {}
         history = []
+        # Set para contar casos únicos cronometrados con resultado (evita contar duplicados)
+        unique_timed_cases = set()
+
         for e in executions:
             tc = db.query(TestCase).filter(TestCase.id == e.test_case_id).first()
             if tc:
+                # Solo contar en el total si tiene resultado definido (CUMPLE / NO CUMPLE)
+                if e.result in ("CUMPLE", "NO CUMPLE"):
+                    unique_timed_cases.add(e.test_case_id)
                 t = tc.test_type or "DESCONOCIDO"
                 if t not in by_type:
                     by_type[t] = {"count": 0, "total_seconds": 0.0}
@@ -1671,7 +1677,7 @@ async def timer_stats(project_name: Optional[str] = None):
             by_type[t]["avg_seconds"] = by_type[t]["total_seconds"] / by_type[t]["count"]
 
         return {
-            "total_executed": len(executions),
+            "total_executed": len(unique_timed_cases) or len(executions),
             "avg_seconds": round(avg, 2),
             "total_seconds": round(total, 2),
             "min_seconds": round(mn, 2),

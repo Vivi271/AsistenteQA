@@ -3054,8 +3054,8 @@ body[data-theme="light"] .how-to-arrow {
 }
 
 .exec-td {
-  padding: 0.75rem 1rem;
-  vertical-align: top;
+  padding: 0.6rem 0.85rem;
+  vertical-align: middle;
   color: var(--text-primary);
 }
 
@@ -3094,9 +3094,17 @@ body[data-theme="light"] .how-to-arrow {
   padding: 0.2rem 0.5rem !important;
   border-radius: 4px !important;
   white-space: nowrap !important;
-  display: inline-block !important;
+  display: inline-flex !important;
+  align-items: center !important;
   word-break: keep-all !important;
-  overflow: visible !important;
+  overflow: hidden !important;
+  max-width: 100% !important;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.exec-case-id:hover {
+  background: rgba(34, 211, 238, 0.16) !important;
 }
 
 .exec-title-cell {

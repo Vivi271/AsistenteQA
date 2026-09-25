@@ -308,11 +308,12 @@ class RAGPipeline:
                 keep_alive="24h",
                 options={
                     "temperature": 0.3,
-                    "num_predict": 350,
-                    "num_ctx": 2048,
-                    "num_thread": 4,
-                    "top_k": 30,
-                    "top_p": 0.90
+                    "num_predict": 280,
+                    "num_ctx": 1536,
+                    "num_thread": 6,
+                    "top_k": 20,
+                    "top_p": 0.85,
+                    "repeat_penalty": 1.1
                 },
             )
         )
@@ -351,9 +352,11 @@ class RAGPipeline:
                 keep_alive="24h",
                 options={
                     "temperature": 0.2,
-                    "num_predict": 180,
-                    "num_ctx": 2048,
-                    "num_thread": 4
+                    "num_predict": 150,
+                    "num_ctx": 1024,
+                    "num_thread": 6,
+                    "top_k": 20,
+                    "top_p": 0.85
                 },
             )
 
