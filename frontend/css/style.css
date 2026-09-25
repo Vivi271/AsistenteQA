@@ -2,44 +2,38 @@
    PRQA — style.css
    Asistente QA con IA Local — Ciel Ingeniería S.A.S
    Design: JARVIS HUD + Corporate Ciel Teal
-═══════════════════════════════════════════════════════════════ */
-
-/* ── JARVIS / Orbitron Font ────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&display=swap');
-
-/* ── Design Tokens ─────────────────────────────────────────── */
-:root {
-  --bg-primary: #060a14;
-  --bg-secondary: #0b1120;
-  --bg-panel: rgba(0, 156, 166, 0.04);
-  --bg-panel-hover: rgba(0, 156, 166, 0.08);
+═════════════════════════════════════════════════════════� :root {
+  --bg-primary: #080d18;
+  --bg-secondary: #0d1526;
+  --bg-panel: rgba(56, 189, 248, 0.03);
+  --bg-panel-hover: rgba(56, 189, 248, 0.06);
   --bg-input: rgba(255, 255, 255, 0.05);
-  --bg-input-focus: rgba(0, 156, 166, 0.08);
-  --bg-card: rgba(11, 17, 32, 0.9);
+  --bg-input-focus: rgba(56, 189, 248, 0.07);
+  --bg-card: rgba(13, 21, 38, 0.92);
 
-  --accent-primary: #009CA6;
-  /* Corporate Ciel Teal */
-  --accent-secondary: #00e5ff;
-  /* JARVIS holographic cyan */
-  --accent-tertiary: #0ff;
-  /* Pure HUD cyan */
+  --accent-primary: #0e9aa7;
+  /* Ciel Corporate Teal */
+  --accent-secondary: #38bdf8;
+  /* Professional sky-blue, softer than electric cyan */
+  --accent-tertiary: #7dd3fc;
+  /* Light blue, replaces harsh #0ff */
   --accent-success: #10b981;
-  --accent-danger: #ef4444;
+  --accent-danger: #f43f5e;
   --accent-warning: #f59e0b;
 
-  --gradient-main: linear-gradient(135deg, #009ca6 0%, #00e5ff 100%);
-  --gradient-jarvis: linear-gradient(135deg, #00e5ff 0%, #009ca6 50%, #22d3ee 100%);
+  --gradient-main: linear-gradient(135deg, #0e9aa7 0%, #38bdf8 100%);
+  --gradient-jarvis: linear-gradient(135deg, #38bdf8 0%, #0e9aa7 50%, #22d3ee 100%);
   --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  --gradient-card: linear-gradient(135deg, rgba(0, 156, 166, 0.12) 0%, rgba(0, 229, 255, 0.06) 100%);
+  --gradient-danger: linear-gradient(135deg, #f43f5e 0%, #dc2626 100%);
+  --gradient-card: linear-gradient(135deg, rgba(14, 154, 167, 0.1) 0%, rgba(56, 189, 248, 0.05) 100%);
 
-  --text-primary: #e2f5f7;
-  --text-secondary: #7fb8bf;
-  --text-muted: #3d6670;
+  --text-primary: #ddeef2;
+  --text-secondary: #7baab4;
+  --text-muted: #3a5f6b;
 
-  --border-subtle: rgba(0, 156, 166, 0.12);
-  --border-accent: rgba(0, 229, 255, 0.3);
-  --border-hud: rgba(0, 229, 255, 0.5);
+  --border-subtle: rgba(56, 189, 248, 0.1);
+  --border-accent: rgba(56, 189, 248, 0.22);
+  --border-hud: rgba(56, 189, 248, 0.38);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -49,7 +43,20 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.7);
-  --shadow-glow: 0 0 30px rgba(0, 156, 166, 0.3);
+  --shadow-glow: 0 0 24px rgba(14, 154, 167, 0.22);
+  --shadow-hud: 0 0 16px rgba(56, 189, 248, 0.1), 0 0 48px rgba(14, 154, 167, 0.08);
+
+  --sidebar-width: 260px;
+  --hud-bar-height: 32px;
+  --header-height: 72px;
+
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --font-hud: 'Orbitron', 'JetBrains Mono', monospace;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+, 166, 0.3);
   --shadow-hud: 0 0 20px rgba(0, 229, 255, 0.15), 0 0 60px rgba(0, 156, 166, 0.1);
 
   --sidebar-width: 260px;
@@ -11302,7 +11309,7 @@ body[data-theme="dark"] .kb-stat-item {
 }
 
 body[data-theme="dark"] .kb-stat-val {
-  color: var(--accent-secondary, #00e5ff);
+  color: var(--accent-secondary);
 }
 
 .kb-stat-lbl {
@@ -13813,7 +13820,7 @@ body[data-theme="light"] .exec-back-btn:hover {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  color: var(--accent-secondary, #00e5ff) !important;
+  color: var(--accent-secondary) !important;
   cursor: pointer !important;
   z-index: 250 !important;
   backdrop-filter: blur(8px) !important;

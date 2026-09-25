@@ -3610,7 +3610,6 @@ async function loadTimerStats() {
               <span style="font-size:0.68rem;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.title || '—'}</span>
               <span style="font-size:0.7rem;font-weight:700;color:var(--text-primary);flex-shrink:0;">${t}</span>
               <span class="exec-status ${badgeCls}" style="font-size:0.62rem;padding:0.1rem 0.35rem;flex-shrink:0;">${s.result || '—'}</span>
-              <span style="font-size:0.6rem;font-weight:700;flex-shrink:0;padding:0.1rem 0.3rem;border-radius:4px;${isCritical ? 'background:rgba(239,68,68,0.15);color:#ef4444;' : 'background:rgba(16,185,129,0.1);color:#10b981;'}">${isCritical ? '🔴 Crítico' : '✓ OK'}</span>
             </div>
           `;
         }).join('');
