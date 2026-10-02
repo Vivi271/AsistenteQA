@@ -41,5 +41,8 @@ networkx==3.3
 pandas==2.2.2
 pillow==10.4.0
 
+# Neural TTS (Jarvis voice)
+edge-tts==7.2.8
+
 
 

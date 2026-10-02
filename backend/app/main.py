@@ -255,6 +255,46 @@ async def chat_stream(req: ChatRequest):
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+class TTSRequest(BaseModel):
+    text: str
+    voice: Optional[str] = "es-ES-AlvaroNeural"
+    rate: Optional[str] = "-3%"
+    pitch: Optional[str] = "-4Hz"
+
+@app.post("/api/tts")
+async def generate_tts(req: TTSRequest):
+    """
+    Genera audio con voz neural masculina de alta definición (Edge TTS).
+    Calidad estudio estilo Jarvis: fluida, masculina y sin robotización.
+    """
+    if not req.text or not req.text.strip():
+        raise HTTPException(status_code=400, detail="Texto vacío")
+
+    clean_text = req.text.strip()
+    if len(clean_text) > 3500:
+        clean_text = clean_text[:3500]
+
+    try:
+        import edge_tts
+        voice_choice = req.voice or "es-ES-AlvaroNeural"
+        communicate = edge_tts.Communicate(
+            clean_text,
+            voice=voice_choice,
+            rate=req.rate or "-3%",
+            pitch=req.pitch or "-4Hz"
+        )
+
+        async def audio_stream():
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    yield chunk["data"]
+
+        return StreamingResponse(audio_stream(), media_type="audio/mpeg")
+    except Exception as e:
+        print(f"[PRQA TTS Error] {e}")
+        raise HTTPException(status_code=500, detail=f"Error generando síntesis neural: {str(e)}")
+
+
 @app.get("/api/projects")
 async def list_projects():
     """Obtiene la lista única de todos los nombres de proyectos registrados."""
