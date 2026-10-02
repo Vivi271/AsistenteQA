@@ -26,30 +26,93 @@ EMBED_MODEL = "nomic-embed-text"
 CHROMA_PATH = os.getenv("CHROMA_PATH", "/app/chroma_db")
 COLLECTION_NAME = "prqa_knowledge"
 
-SYSTEM_PROMPT = """Eres CIEL AI, la asistente oficial de Aseguramiento de Calidad (QA) de Ciel Ingeniería S.A.S. en la plataforma PRQA.
-Tu rol es orientar a los ingenieros en el flujo de calidad: Base de Conocimiento, Generación de Casos EOPA DTR029C, Ejecución de Pruebas y Dashboard.
+SYSTEM_PROMPT = """Eres CIEL AI, la asistente inteligente especializada en Aseguramiento de Calidad de Software (QA) de Ciel Ingeniería S.A.S., integrada en la plataforma PRQA.
 
-REGLAS DE RESPUESTA:
-- Responde siempre en español, de forma cordial, profesional y concisa.
-- Sé directa: responde en máximo 2 a 3 puntos breves o un párrafo corto.
-- Concluye siempre tus oraciones con punto final. Nunca dejes listas cortadas ni numeraciones vacías.{context_block}"""
+INFORMACIÓN DE LA PLATAFORMA:
+- PRQA es la plataforma y suite de Aseguramiento de Calidad de Software de Ciel Ingeniería S.A.S. (NO significa "Predictive Quality Analytics").
+- Sus módulos son: Base de Conocimiento (carga de documentos SRS, BRD, PRD y MTR), Generación de Casos de Prueba con IA (formato EOPA/DTR029C), Ejecución y Tiempos de Pruebas, y Dashboard de Métricas.
+
+DIRECTRICES DE RESPUESTA:
+- Responde siempre en español, de forma profesional, clara, cercana y concisa (máximo 2 a 3 puntos o un párrafo breve). Siempre con punto final.
+- Tolerancia a errores de escritura (typos): Si el usuario escribe con errores de tipeo (ej. "proyrcto", "aplicaion", "prubas", "reqerimiento"), comprende la intención con naturalidad sin confundirte ni rechazar la consulta.
+- Si el usuario pregunta qué es la plataforma, qué es este proyecto o sobre el proyecto activo, explícalo con base en la información de PRQA y los documentos indexados del proyecto.
+- Si existen DOCUMENTOS DE REFERENCIA relevantes, úsalos como fuente principal y menciona el nombre del documento de donde proviene la información.
+- Si la pregunta es sobre conceptos o metodologías de QA (pruebas funcionales, no funcionales, BDD, EOPA, casos de prueba, bugs, Scrum), respóndela con tu conocimiento técnico de QA.
+- Solo si la pregunta es TOTALMENTE ajena a tecnología, software o al proyecto (ej. recetas de cocina, deportes, sismos, farándula, política), indica amablemente en una sola frase breve que tu especialidad es el aseguramiento de calidad y las pruebas de software de Ciel Ingeniería.{context_block}"""
 
 
 def is_conversational_query(text: str) -> bool:
-    """Detecta si la consulta es un saludo o pregunta general sobre CIEL AI/PRQA que no requiere buscar en documentos del proyecto."""
+    """Detecta si la consulta es un saludo/conversacional que NO requiere buscar en documentos."""
     q = text.lower().strip()
-    doc_keywords = ["requisito", "requerimiento", "criterio", "historia", "contrato", "prd", "brd", "mtr", "tabla", "modulo", "módulo", "endpoint", "api"]
+
+    # Palabras que SÍ indican búsqueda en documentos del proyecto
+    doc_keywords = [
+        "requisito", "requerimiento", "criterio", "historia de usuario",
+        "contrato", "prd", "brd", "mtr", "tabla", "modulo", "módulo",
+        "endpoint", "api", "caso de prueba", "caso de uso", "flujo",
+        "funcionalidad", "srs", "eopa", "dtr029c", "documento", "indexado",
+        "fragmento", "base de conocimiento", "plantilla", "proyecto", "proyrcto",
+        "activo", "sistema", "aplicacion", "aplicación"
+    ]
     if any(k in q for k in doc_keywords):
         return False
-    meta_patterns = [
-        "hola", "buen", "saludos", "que tal", "qué tal", "que mas", "qué más",
-        "que sabes hacer", "qué sabes hacer", "que puedes hacer", "qué puedes hacer",
+
+    # Saludos y preguntas de cortesía son conversacionales
+    greeting_patterns = [
+        "hola", "buenos días", "buenas tardes", "buenas noches", "buen día",
+        "saludos", "que tal", "qué tal", "como estas", "cómo estás",
         "quien eres", "quién eres", "como te llamas", "cómo te llamas",
-        "ciel ai", "ciel", "para que sirves", "para qué sirves",
-        "que es prqa", "qué es prqa", "como funciona", "cómo funciona",
-        "ayuda", "help", "gracias", "muchas gracias", "adios", "adiós", "chao"
+        "que eres", "qué eres", "ciel ai", "para que sirves", "para qué sirves",
+        "que sabes hacer", "qué sabes hacer", "que puedes hacer", "qué puedes hacer",
+        "ayuda", "gracias", "muchas gracias", "adios", "adiós", "chao", "hasta luego",
     ]
-    return any(p in q for p in meta_patterns)
+    if any(p in q for p in greeting_patterns):
+        return True
+
+    return False
+
+
+# Palabras clave que indican un tema fuera del scope de QA y tecnología de software
+_OFF_TOPIC_SIGNALS = [
+    # Ciencias naturales
+    "sismo", "terremoto", "volcán", "huracán", "tsunami", "tornado", "clima",
+    "planeta", "galaxia", "estrella", "universo", "átomo", "célula", "biología",
+    "química", "física", "matemáticas", "cálculo", "geometría",
+    # Historia y geografía
+    "historia", "guerra", "presidente", "país", "ciudad", "capital", "geografía",
+    "continente", "océano", "río", "montaña", "conquista", "revolución",
+    # Entretenimiento y vida cotidiana
+    "película", "serie", "canción", "música", "artista", "actor", "deporte",
+    "fútbol", "baloncesto", "receta", "comida", "cocina", "medicina", "enfermedad",
+    "síntoma", "vacuna", "filosofía", "religión", "dios", "economía", "política",
+    "partido", "elección", "ley", "derecho", "abogado",
+]
+
+
+def is_off_topic(text: str) -> bool:
+    """Devuelve True si la pregunta está CLARAMENTE fuera del dominio QA/software."""
+    q = text.lower().strip()
+
+    # Si contiene señales claras de off-topic, verificar que no tenga anclaje a software/QA
+    if any(sig in q for sig in _OFF_TOPIC_SIGNALS):
+        qa_anchors = [
+            "prueba", "test", "software", "calidad", "qa", "bug", "defecto", "caso",
+            "eopa", "mtr", "brd", "requisito", "requerimiento", "código", "sistema",
+            "aplicación", "app", "api", "base de datos", "servidor", "docker",
+            "scrum", "agile", "sprint", "criterio", "aceptación", "funcional",
+            "prqa", "ciel", "proyecto", "proyrcto", "modulo", "módulo", "dashboard",
+        ]
+        if any(a in q for a in qa_anchors):
+            return False
+        return True
+
+    return False
+
+
+OFF_TOPIC_REPLY = (
+    "Mi especialidad es el aseguramiento de calidad de software y el soporte en la plataforma PRQA de Ciel Ingeniería. "
+    "¿En qué puedo ayudarte respecto a las pruebas o requerimientos de tu proyecto?"
+)
 
 
 
@@ -246,7 +309,7 @@ class RAGPipeline:
 
         results = self.collection.query(**query_kwargs)
 
-        if not results["documents"] or not results["documents"][0]:
+        if not results.get("documents") or not results["documents"][0]:
             return "", []
 
         # Filtrar fragmentos con distancia coseno según umbral
@@ -263,8 +326,8 @@ class RAGPipeline:
                 filtered_docs.append(doc)
                 filtered_sources.append(meta["source"])
 
-        # Si el filtro estricto descartó todo pero el usuario seleccionó documentos específicos,
-        # devolver los mejores fragmentos disponibles del documento elegido
+        # Si el filtro por distancia descartó todo Y el usuario seleccionó docs específicos,
+        # devolver el fragmento más cercano de ese documento (nunca cruzar proyectos)
         if not filtered_docs and doc_names and results["documents"][0]:
             filtered_docs = results["documents"][0][:n_results]
             filtered_sources = [m["source"] for m in results["metadatas"][0][:n_results]]
@@ -285,15 +348,19 @@ class RAGPipeline:
         context = ""
         sources = []
 
+        # Bloqueo de temas fuera del dominio QA — respuesta instantánea sin consultar el LLM
+        if is_off_topic(question):
+            return OFF_TOPIC_REPLY, []
+
         if use_knowledge_base and not is_conversational_query(question):
             try:
-                context, sources = await self.retrieve(question, project_name=project_name, n_results=2, max_distance=0.48)
+                context, sources = await self.retrieve(question, project_name=project_name, n_results=3, max_distance=0.62)
             except Exception as e:
                 print(f"Aviso al recuperar contexto RAG para chat: {e}")
 
         context_block = ""
         if context:
-            context_block = f"\n\nDOCUMENTOS DE REFERENCIA DEL PROYECTO:\n{context}\n\nUsa únicamente la información anterior si la pregunta del usuario lo requiere."
+            context_block = f"\n\nDOCUMENTOS DE REFERENCIA DEL PROYECTO:\n{context}\n\nResponde basándote principalmente en estos documentos. Indica de cuál proviene la información."
 
         prompt = SYSTEM_PROMPT.format(context_block=context_block)
 
@@ -307,13 +374,13 @@ class RAGPipeline:
                 ],
                 keep_alive="24h",
                 options={
-                    "temperature": 0.3,
-                    "num_predict": 280,
-                    "num_ctx": 1536,
+                    "temperature": 0.55,
+                    "num_predict": 320,
+                    "num_ctx": 2048,
                     "num_thread": 6,
-                    "top_k": 20,
-                    "top_p": 0.85,
-                    "repeat_penalty": 1.1
+                    "top_k": 40,
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.15
                 },
             )
         )
@@ -328,16 +395,21 @@ class RAGPipeline:
             yield "Error: Ollama no está disponible."
             return
 
+        # Bloqueo de temas fuera del dominio QA — respuesta instantánea sin consultar el LLM
+        if is_off_topic(question):
+            yield OFF_TOPIC_REPLY
+            return
+
         context = ""
         if use_knowledge_base and not is_conversational_query(question):
             try:
-                context, _ = await self.retrieve(question, project_name=project_name, n_results=2, max_distance=0.48)
+                context, _ = await self.retrieve(question, project_name=project_name, n_results=3, max_distance=0.62)
             except Exception as e:
                 print(f"Aviso en streaming RAG: {e}")
 
         context_block = ""
         if context:
-            context_block = f"\n\nDOCUMENTOS DE REFERENCIA DEL PROYECTO:\n{context}\n\nUsa únicamente la información anterior si la pregunta del usuario lo requiere."
+            context_block = f"\n\nDOCUMENTOS DE REFERENCIA DEL PROYECTO:\n{context}\n\nResponde basándote principalmente en estos documentos. Indica de cuál proviene la información."
 
         prompt = SYSTEM_PROMPT.format(context_block=context_block)
 
@@ -351,12 +423,12 @@ class RAGPipeline:
                 stream=True,
                 keep_alive="24h",
                 options={
-                    "temperature": 0.2,
-                    "num_predict": 150,
-                    "num_ctx": 1024,
+                    "temperature": 0.55,
+                    "num_predict": 280,
+                    "num_ctx": 2048,
                     "num_thread": 6,
-                    "top_k": 20,
-                    "top_p": 0.85
+                    "top_k": 40,
+                    "top_p": 0.9
                 },
             )
 
