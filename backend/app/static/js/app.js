@@ -227,7 +227,11 @@ async function submitRenameProject() {
 
 // ── Eliminar proyecto ──────────────────────────────────────────
 function openDeleteProjectModal() {
-  if (currentProject === 'General') { showToast('No puedes eliminar el proyecto predeterminado', 'error'); return; }
+  // Solo proteger 'General' (proyecto de sistema). 'Proyectos' y demas son eliminables.
+  if (currentProject === 'General') {
+    showToast('El proyecto "General" es el predeterminado del sistema y no se puede eliminar.', 'error');
+    return;
+  }
   document.getElementById('deleteProjectName').textContent = currentProject;
   document.getElementById('deleteProjectModal').classList.remove('hidden');
 }
@@ -333,11 +337,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const projInput = document.getElementById('projectName');
   if (projInput) projInput.value = currentProject;
 
-  // Start on step 1: Base de Conocimiento
-  switchModule('documents');
+  // Restaurar módulo activo (persiste entre recargas del navegador)
+  const savedModule = localStorage.getItem('prqa_active_module') || 'documents';
+  switchModule(savedModule);
 
-  loadTestCasesForExecution();
-  loadDashboard();
+  // Si el usuario estaba en el detalle de una matriz en ejecución, restaurarla
+  if (savedModule === 'execution') {
+    const savedMatrixKey = localStorage.getItem('prqa_active_matrix_key');
+    if (savedMatrixKey) {
+      setTimeout(() => {
+        if (typeof openExecMatrixDetail === 'function') openExecMatrixDetail(savedMatrixKey);
+      }, 350);
+    }
+  }
+
+  // Restaurar cronómetro si estaba corriendo al momento de recargar
+  setTimeout(() => {
+    if (typeof restoreActiveTimerSession === 'function') restoreActiveTimerSession();
+  }, 450);
 
   // Reloj HUD en tiempo real
   updateHudClock();
@@ -457,11 +474,11 @@ function initSidebarResizer() {
 // Navegación
 // ══════════════════════════════════════════════════════════════
 function switchModule(name) {
-  // Ocultar módulo actual
+  // Ocultar modulo actual
   document.querySelectorAll('.module').forEach(m => m.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
-  // Mostrar nuevo módulo
+  // Mostrar nuevo modulo
   const moduleEl = document.getElementById(`module${name.charAt(0).toUpperCase() + name.slice(1)}`);
   const navEl = document.getElementById(`nav${name.charAt(0).toUpperCase() + name.slice(1)}`);
 
@@ -469,8 +486,9 @@ function switchModule(name) {
   if (navEl) navEl.classList.add('active');
 
   currentModule = name;
+  try { localStorage.setItem('prqa_active_module', name); } catch (_) {}
 
-  // Recargar datos según módulo
+  // Recargar datos segun modulo
   if (name === 'generate') {
     _expandedMatrices.clear();
     loadDocumentsForGenerator();
@@ -478,8 +496,11 @@ function switchModule(name) {
     updateTestTypeChips();
   }
   if (name === 'documents') loadDocuments();
-  if (name === 'execution') loadTestCasesForExecution();
-  if (name === 'timer') loadTimerModule();
+  if (name === 'execution') {
+    loadTestCasesForExecution();
+    // Tambien cargar datos del cronometro al entrar al modulo
+    if (typeof loadTimerModule === 'function') loadTimerModule();
+  }
   if (name === 'dashboard') loadDashboard();
 }
 
@@ -1443,6 +1464,9 @@ function copyTestCaseGherkin(caseId) {
   });
 }
 
+// AbortController para cancelar generacion en curso
+let _generateAbortController = null;
+
 async function generateTestCases() {
   const btn = document.getElementById('generateBtn');
   const loading = document.getElementById('generatorLoading');
@@ -1469,6 +1493,35 @@ async function generateTestCases() {
   btn.disabled = true;
   loading.classList.remove('hidden');
 
+  // Mostrar boton Cancelar
+  const cancelBtn = document.getElementById('generateCancelBtn');
+  if (cancelBtn) cancelBtn.classList.remove('hidden');
+
+  // Crear AbortController para poder cancelar el fetch en cualquier momento
+  _generateAbortController = new AbortController();
+  const { signal } = _generateAbortController;
+
+  // ── Contador de tiempo en vivo + mensajes de estado ──────────────
+  const _genStartTime = Date.now();
+  const _genStatuses = [
+    'Consultando base de conocimiento...',
+    'Analizando requerimiento con IA...',
+    'Generando casos de prueba EOPA...',
+    'Estructurando la matriz de resultados...',
+    'Finalizando y exportando a Excel...'
+  ];
+  let _genStatusIdx = 0;
+  const _genStatusEl = loading.querySelector('p');
+  const _genTimeEl = loading.querySelector('span');
+  const _genTimerInterval = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - _genStartTime) / 1000);
+    if (_genTimeEl) _genTimeEl.textContent = `⏱ ${elapsedSec}s transcurridos...`;
+    if (_genStatusEl && _genStatusIdx < _genStatuses.length - 1 && elapsedSec % 8 === 0 && elapsedSec > 0) {
+      _genStatusIdx++;
+      _genStatusEl.textContent = _genStatuses[_genStatusIdx];
+    }
+  }, 1000);
+
   try {
     // Asegurar que el input de proyecto y currentProject coincidan
     const effectiveProject = currentProject || 'General';
@@ -1478,6 +1531,7 @@ async function generateTestCases() {
     const response = await fetch(`${API_BASE}/api/test-cases/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         requirement_text: requirementText,
         project_name: effectiveProject,
@@ -1500,7 +1554,8 @@ async function generateTestCases() {
     // Cambiar automáticamente a la pestaña de matrices y casos generados
     switchGenTab('results');
 
-    showToast(`✅ ${data.total || numCases} casos generados en estándar EOPA (${data.excel_filename || 'Excel'})`, 'success');
+    const totalSec = Math.round((Date.now() - _genStartTime) / 1000);
+    showToast(`✅ ${data.total || numCases} casos generados en ${totalSec}s — ${data.excel_filename || 'Excel listo'}`, 'success');
 
     // Descarga automática del Excel recién generado
     if (data.excel_filename) {
@@ -1508,22 +1563,38 @@ async function generateTestCases() {
     }
 
   } catch (e) {
-    showToast(e.message, 'error');
-    const container = document.getElementById('genPreviewContainer');
-    if (container) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color:var(--accent-danger)">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <p>Error al generar</p>
-          <span>${e.message}</span>
-        </div>
-      `;
+    if (e.name === 'AbortError') {
+      showToast('Generación cancelada.', 'warning');
+    } else {
+      showToast(e.message, 'error');
+      const container = document.getElementById('genPreviewContainer');
+      if (container) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color:var(--accent-danger)">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <p>Error al generar</p>
+            <span>${e.message}</span>
+          </div>
+        `;
+      }
     }
   } finally {
+    clearInterval(_genTimerInterval);
     loading.classList.add('hidden');
     btn.disabled = false;
+    _generateAbortController = null;
+    const cancelBtn = document.getElementById('generateCancelBtn');
+    if (cancelBtn) cancelBtn.classList.add('hidden');
+    if (_genStatusEl) _genStatusEl.textContent = 'Consultando base de conocimiento y generando casos de prueba...';
+    if (_genTimeEl) _genTimeEl.textContent = 'Esto puede tardar entre 20 y 45 segundos según el modelo';
+  }
+}
+
+function cancelGeneration() {
+  if (_generateAbortController) {
+    _generateAbortController.abort();
   }
 }
 
@@ -1715,12 +1786,28 @@ function renderExecMatrixCards(cases) {
     const pendientes = group.cases.filter(c => c.status === 'Pendiente' || !c.result).length;
     const pct = total > 0 ? Math.round((cumple / total) * 100) : 0;
 
-    let cleanDate = group.created_at || '';
-    try {
-      const iso = (typeof cleanDate === 'string' && !cleanDate.endsWith('Z') && !cleanDate.includes('+')) ? cleanDate + 'Z' : cleanDate;
-      const d = new Date(iso);
-      cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch (_) {}
+    let cleanDate = '';
+    const rawDate = group.created_at || (group.cases && group.cases[0] && group.cases[0].created_at) || '';
+    if (rawDate) {
+      try {
+        const iso = (typeof rawDate === 'string' && !rawDate.endsWith('Z') && !rawDate.includes('+')) ? rawDate + 'Z' : rawDate;
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+      } catch (_) {}
+    }
+    if (!cleanDate && group.export_file) {
+      const match = group.export_file.match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})/);
+      if (match) {
+        try {
+          const d = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}`);
+          if (!isNaN(d.getTime())) {
+            cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+        } catch (_) {}
+      }
+    }
 
     const encodedKey = encodeURIComponent(group.sessionKey);
 
@@ -1737,7 +1824,7 @@ function renderExecMatrixCards(cases) {
         <!-- Info principal -->
         <div class="exec-matrix-card-body">
           <div class="exec-matrix-card-title">📋 ${group.module}</div>
-          <div class="exec-matrix-card-meta">📅 ${cleanDate}</div>
+          <div class="exec-matrix-card-meta">${cleanDate ? `📅 ${cleanDate}` : `📋 ${total} casos`}</div>
 
           <!-- Barra de progreso -->
           <div class="exec-matrix-progress-wrap">
@@ -1827,18 +1914,48 @@ async function openExecMatrixDetail(encodedKey) {
   );
 
   _execCurrentGroup = { module, created_at: fileOrDate, cases: groupCases, sessionKey };
+  try { localStorage.setItem('prqa_active_matrix_key', encodedKey); } catch (_) {}
 
   // Actualizar título y meta
   const titleEl = document.getElementById('execDetailTitle');
   const metaEl = document.getElementById('execDetailMeta');
   if (titleEl) titleEl.textContent = `📋 ${module}`;
   if (metaEl) {
-    let cleanDate = fileOrDate;
-    try {
-      const iso = (typeof fileOrDate === 'string' && !fileOrDate.endsWith('Z') && !fileOrDate.includes('+')) ? fileOrDate + 'Z' : fileOrDate;
-      cleanDate = new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch (_) {}
-    metaEl.textContent = `📅 ${cleanDate} · ${groupCases.length} casos`;
+    let cleanDate = '';
+    // 1. Obtener fecha del caso
+    const rawDate = (groupCases[0] && groupCases[0].created_at) || '';
+    if (rawDate) {
+      try {
+        const iso = (typeof rawDate === 'string' && !rawDate.endsWith('Z') && !rawDate.includes('+')) ? rawDate + 'Z' : rawDate;
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+      } catch (_) {}
+    }
+
+    // 2. Si no hay fecha en el caso o sigue vacía, intentar del nombre del archivo (ej. Casos_General_2026-09-18_18-46-08.xlsx)
+    if (!cleanDate && typeof fileOrDate === 'string') {
+      const match = fileOrDate.match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})/);
+      if (match) {
+        try {
+          const d = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}`);
+          if (!isNaN(d.getTime())) {
+            cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+        } catch (_) {}
+      } else if (!fileOrDate.endsWith('.xlsx')) {
+        try {
+          const iso = (!fileOrDate.endsWith('Z') && !fileOrDate.includes('+')) ? fileOrDate + 'Z' : fileOrDate;
+          const d = new Date(iso);
+          if (!isNaN(d.getTime())) {
+            cleanDate = d.toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+        } catch (_) {}
+      }
+    }
+
+    metaEl.textContent = cleanDate ? `📅 ${cleanDate} · ${groupCases.length} casos` : `📋 ${groupCases.length} casos`;
   }
 
   // Botón de descargar resultados
@@ -1851,9 +1968,28 @@ async function openExecMatrixDetail(encodedKey) {
   renderExecDetailCases(groupCases);
   updateExecDetailKpis(groupCases);
 
+  // Restablecer la selección del cronómetro al cambiar de matriz
+  _timerSelectedCaseId = null;
+  const displayEl = document.getElementById('timerSelectedCaseDisplay');
+  const textEl = document.getElementById('timerSelectedCaseText');
+  if (displayEl) displayEl.style.borderColor = 'rgba(0,156,166,0.25)';
+  if (textEl) { textEl.style.color = 'var(--text-muted)'; textEl.innerHTML = '<span style="color:var(--text-muted);font-size:0.72rem;">Haz clic en una fila o en el botón ⏱ para seleccionarlo</span>'; }
+
+  // Cargar estadísticas del cronómetro para el mini panel
+  if (typeof loadTimerStats === 'function') loadTimerStats();
+
   // Mostrar la vista de detalle
   showExecDetailView();
 }
+
+function handleExecRowClick(event, tcId) {
+  // Si el clic fue en un botón, enlace o input, no ejecutar la selección por fila
+  if (event.target.closest('button') || event.target.closest('a') || event.target.closest('input') || event.target.closest('select')) {
+    return;
+  }
+  selectCaseForTimer(tcId);
+}
+window.handleExecRowClick = handleExecRowClick;
 
 function renderExecDetailCases(cases) {
   const container = document.getElementById('execDetailCasesList');
@@ -1864,20 +2000,45 @@ function renderExecDetailCases(cases) {
     return;
   }
 
+  // Almacenar los casos en un mapa global por db_id para acceso seguro sin pasar JSON por atributos
+  window._execCasesMap = window._execCasesMap || {};
+  cases.forEach(tc => { window._execCasesMap[tc.db_id] = tc; });
+
   const rows = cases.map(tc => {
     const isPending = !tc.result || tc.status === 'Pendiente';
     const isCumple = tc.result === 'CUMPLE';
     const badgeCls = isPending ? 'status-pending' : isCumple ? 'status-cumple' : 'status-nocumple';
     const badgeLbl = isPending ? 'Pendiente' : tc.result;
+    const isTimerSelected = tc.db_id === _timerSelectedCaseId;
+
     return `
-      <tr class="exec-table-row" id="exec-row-${tc.db_id}">
-        <td class="exec-td exec-td-id"><span class="exec-case-id">${tc.case_id}</span></td>
-        <td class="exec-td exec-td-title"><div class="exec-title-cell">${tc.title}</div></td>
-        <td class="exec-td"><span class="tc-tag tag-type">${tc.test_type}</span></td>
-        <td class="exec-td exec-td-status"><span class="exec-status ${badgeCls}">${badgeLbl}</span></td>
-        <td class="exec-td exec-td-actions">
-          <button class="exec-btn-sm exec-btn-cumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10003; CUMPLE</button>
-          <button class="exec-btn-sm exec-btn-nocumple" onclick="openExecutionModal('${tc.db_id}', '${tc.case_id}', '${escapeStr(tc.title)}')">&#10007; NO CUMPLE</button>
+      <tr class="exec-table-row ${isTimerSelected ? 'timer-row-selected' : ''}" id="exec-row-${tc.db_id}" data-tc-id="${tc.db_id}"
+          onclick="handleExecRowClick(event, '${tc.db_id}')" style="cursor:pointer;">
+        <td class="exec-td exec-td-id">
+          <span class="exec-case-id" onclick="openCaseDetailFromId('${tc.db_id}')" title="Ver detalles y precondiciones">${tc.case_id}</span>
+        </td>
+        <td class="exec-td exec-td-title">
+          <div class="exec-title-cell" onclick="openCaseDetailFromId('${tc.db_id}')" title="Haz clic para previsualizar detalles completos de este caso">${tc.title}</div>
+        </td>
+        <td class="exec-td">
+          <span class="tc-tag tag-type">${tc.test_type}</span>
+        </td>
+        <td class="exec-td exec-td-status">
+          <span class="exec-status ${badgeCls}">${badgeLbl}</span>
+        </td>
+        <td class="exec-td exec-td-actions" style="text-align:right;">
+          <div class="exec-actions-bar">
+            <button type="button" class="exec-action-icon-btn btn-preview" onclick="openCaseDetailFromId('${tc.db_id}')" title="👁 Ver detalles completos del caso">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+            <button type="button" class="exec-action-icon-btn btn-edit" onclick="openEditFromId('${tc.db_id}')" title="✏️ Editar caso de prueba">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button type="button" class="exec-btn-timer-pill ${isTimerSelected ? 'active' : ''}" id="timer-btn-${tc.db_id}" onclick="selectCaseForTimer('${tc.db_id}')" title="Seleccionar para cronómetro y ejecución">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span id="timer-btn-text-${tc.db_id}">${isTimerSelected ? 'En Cronómetro' : 'Cronometrar'}</span>
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -1887,11 +2048,11 @@ function renderExecDetailCases(cases) {
     <table class="exec-table">
       <thead>
         <tr>
-          <th class="exec-th">ID</th>
-          <th class="exec-th">Nombre del Caso</th>
-          <th class="exec-th">Tipo</th>
-          <th class="exec-th">Estado</th>
-          <th class="exec-th">Registrar Resultado</th>
+          <th class="exec-th exec-th-id" style="width:165px;min-width:165px;">ID</th>
+          <th class="exec-th">Caso de Prueba</th>
+          <th class="exec-th" style="width:110px;">Tipo</th>
+          <th class="exec-th" style="width:100px;">Estado</th>
+          <th class="exec-th" style="width:170px;text-align:right;">Acciones</th>
         </tr>
       </thead>
       <tbody id="execDetailTableBody">${rows}</tbody>
@@ -1953,6 +2114,7 @@ function showExecDetailView() {
 function backToExecMatrices() {
   _execCurrentGroup = null;
   _execAllCasesCache = [];
+  try { localStorage.removeItem('prqa_active_matrix_key'); } catch (_) {}
   showExecMatrixListView();
   loadTestCasesForExecution();
 }
@@ -2182,7 +2344,6 @@ function openExecutionModal(dbId, caseId, title) {
   }
 
   document.getElementById('execNotes').value = '';
-  document.getElementById('noCumpleFields').style.display = 'none';
   document.getElementById('saveExecutionBtn').disabled = true;
 
   document.getElementById('btnCumple').classList.remove('selected');
@@ -2221,7 +2382,6 @@ function selectResult(result) {
   selectedResult = result;
   document.getElementById('btnCumple').classList.toggle('selected', result === 'CUMPLE');
   document.getElementById('btnNoCumple').classList.toggle('selected', result === 'NO CUMPLE');
-  document.getElementById('noCumpleFields').style.display = result === 'NO CUMPLE' ? 'block' : 'none';
   document.getElementById('saveExecutionBtn').disabled = false;
 }
 
@@ -2235,9 +2395,6 @@ async function saveExecution() {
   }
 
   const notes = document.getElementById('execNotes')?.value.trim() || null;
-  const severity = document.getElementById('execSeverity')?.value || 'Media';
-  const incidentType = document.getElementById('execIncidentType')?.value || 'Funcional';
-  const incidentState = document.getElementById('execIncidentState')?.value || 'Abierto';
 
   // Si proviene del cronómetro activo
   if (_timerSessionId) {
@@ -2248,10 +2405,7 @@ async function saveExecution() {
         body: JSON.stringify({
           session_id: _timerSessionId,
           result: selectedResult,
-          notes: notes || 'Registrado desde el cronómetro',
-          severity: selectedResult === 'NO CUMPLE' ? severity : null,
-          incident_type: selectedResult === 'NO CUMPLE' ? incidentType : null,
-          incident_state: selectedResult === 'NO CUMPLE' ? incidentState : null,
+          notes: notes || '',
         })
       });
       if (!res.ok) {
@@ -2259,21 +2413,7 @@ async function saveExecution() {
         throw new Error(err.detail || 'Error al registrar fin del cronómetro');
       }
 
-      clearInterval(_timerInterval);
-      _timerRunning = false;
-      _timerSessionId = null;
-
-      const startBtn = document.getElementById('btnTimerStart');
-      const stopBtn = document.getElementById('btnTimerStop');
-      const indicator = document.getElementById('timerStateIndicator');
-      const stateText = document.getElementById('timerStateText');
-      const display = document.getElementById('timerDisplay');
-
-      if (startBtn) startBtn.disabled = false;
-      if (stopBtn) stopBtn.disabled = true;
-      if (indicator) indicator.classList.remove('running');
-      if (stateText) stateText.textContent = 'LISTO';
-      if (display) display.textContent = '00:00.0';
+      _resetTimerUI();
 
       showToast(`✓ Tiempo registrado: ${selectedResult}`, 'success');
       closeExecutionModal();
@@ -2300,12 +2440,6 @@ async function saveExecution() {
     notes: notes,
     tester_name: null,
   };
-
-  if (selectedResult === 'NO CUMPLE') {
-    payload.severity = severity;
-    payload.incident_type = incidentType;
-    payload.incident_state = incidentState;
-  }
 
   try {
     const res = await fetch(`${API_BASE}/api/execution/register`, {
@@ -3065,17 +3199,21 @@ async function onTimerMatrixSelected() {
   }
 }
 
-async function startTimer() {
-  const caseSelect = document.getElementById('timerCaseSelect');
-  const testerInput = document.getElementById('timerTesterInput');
 
-  if (!caseSelect || !caseSelect.value) {
-    showToast('Por favor selecciona un caso de prueba para cronometrar.', 'error');
-    return;
+async function startTimer() {
+  // Obtener el caso: primero el seleccionado desde la tabla integrada, luego el dropdown (pestaña Historial)
+  let tcId = _timerSelectedCaseId;
+
+  // Si no hay caso seleccionado desde la tabla, intentar con el dropdown (vista Historial)
+  if (!tcId) {
+    const caseSelect = document.getElementById('timerCaseSelect');
+    tcId = caseSelect ? caseSelect.value : '';
   }
 
-  const tcId = caseSelect.value;
-  const testerName = testerInput ? testerInput.value.trim() : '';
+  if (!tcId) {
+    showToast('Selecciona un caso de prueba usando el botón ⏱ de la tabla para cronometrarlo.', 'error');
+    return;
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/timer/start`, {
@@ -3083,7 +3221,6 @@ async function startTimer() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         test_case_id: tcId,
-        tester_name: testerName,
         project_name: currentProject
       })
     });
@@ -3096,13 +3233,31 @@ async function startTimer() {
 
     const startBtn = document.getElementById('btnTimerStart');
     const stopBtn = document.getElementById('btnTimerStop');
+    const cancelBtn = document.getElementById('btnTimerCancel');
     const indicator = document.getElementById('timerStateIndicator');
     const stateText = document.getElementById('timerStateText');
 
     if (startBtn) startBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
     if (indicator) indicator.classList.add('running');
     if (stateText) stateText.textContent = 'CORRIENDO';
+
+    // Actualizar botón del caso actual y bloquear los de las otras filas
+    document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+      const isCurrent = btn.id === ('timer-btn-' + tcId);
+      const span = btn.querySelector('span');
+      if (isCurrent) {
+        btn.disabled = false;
+        btn.classList.add('active');
+        if (span) span.textContent = '⏱ Corriendo...';
+      } else {
+        btn.disabled = true;
+        btn.classList.remove('active');
+        btn.title = '⚠ Detén o cancela el cronómetro antes de cambiar de caso';
+        if (span) span.textContent = 'Cronometrar';
+      }
+    });
 
     clearInterval(_timerInterval);
     _timerInterval = setInterval(() => {
@@ -3119,6 +3274,129 @@ async function startTimer() {
   }
 }
 
+function _resetTimerUI() {
+  clearInterval(_timerInterval);
+  _timerRunning = false;
+  _timerSessionId = null;
+  _timerSeconds = 0;
+
+  const startBtn = document.getElementById('btnTimerStart');
+  const stopBtn = document.getElementById('btnTimerStop');
+  const cancelBtn = document.getElementById('btnTimerCancel');
+  const indicator = document.getElementById('timerStateIndicator');
+  const stateText = document.getElementById('timerStateText');
+  const display = document.getElementById('timerDisplay');
+
+  if (startBtn) startBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+  if (indicator) indicator.classList.remove('running');
+  if (stateText) stateText.textContent = 'LISTO';
+  if (display) display.textContent = '00:00.0';
+
+  // Desbloquear todos los botones de la tabla y restaurar etiquetas
+  document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+    btn.disabled = false;
+    btn.title = 'Seleccionar para cronómetro y ejecución';
+    const isCurrent = btn.id === ('timer-btn-' + _timerSelectedCaseId);
+    const span = btn.querySelector('span');
+    if (span) {
+      span.textContent = isCurrent ? 'En Cronómetro' : 'Cronometrar';
+    }
+  });
+}
+
+// ── Restaurar sesión de cronómetro activa tras recargar la página ──
+async function restoreActiveTimerSession() {
+  try {
+    const res = await fetch(`${API_BASE}/api/timer/current-running?project_name=${encodeURIComponent(currentProject)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.active) return;
+
+    _timerSessionId = data.session_id;
+    _timerSelectedCaseId = data.test_case_id;
+    _timerRunning = !data.is_paused;
+    _timerSeconds = Math.max(0, Math.round(data.elapsed_seconds || 0));
+
+    const startBtn = document.getElementById('btnTimerStart');
+    const stopBtn = document.getElementById('btnTimerStop');
+    const cancelBtn = document.getElementById('btnTimerCancel');
+    const indicator = document.getElementById('timerStateIndicator');
+    const stateText = document.getElementById('timerStateText');
+    const display = document.getElementById('timerDisplay');
+
+    const mins = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+    const secs = String(_timerSeconds % 60).padStart(2, '0');
+    if (display) display.textContent = `${mins}:${secs}.0`;
+
+    if (startBtn) startBtn.disabled = true;
+    if (stopBtn) stopBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (indicator) {
+      if (_timerRunning) indicator.classList.add('running');
+      else indicator.classList.remove('running');
+    }
+    if (stateText) stateText.textContent = _timerRunning ? 'CORRIENDO' : 'PAUSADO';
+
+    // Mostrar el caso seleccionado en el display del cronómetro
+    const caseTextEl = document.getElementById('timerSelectedCaseText');
+    const caseDisplayEl = document.getElementById('timerSelectedCaseDisplay');
+    if (caseDisplayEl) caseDisplayEl.style.borderColor = 'rgba(0,156,166,0.6)';
+    if (caseTextEl && data.case_id) {
+      caseTextEl.style.color = 'var(--text-primary)';
+      caseTextEl.innerHTML = `<strong style="color:var(--accent-secondary);font-family:monospace;">${data.case_id}</strong> — ${data.title || ''}`;
+    }
+
+    // Reanudar conteo en pantalla si estaba corriendo
+    clearInterval(_timerInterval);
+    if (_timerRunning) {
+      _timerInterval = setInterval(() => {
+        _timerSeconds++;
+        const m = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
+        const s = String(_timerSeconds % 60).padStart(2, '0');
+        const d = document.getElementById('timerDisplay');
+        if (d) d.textContent = `${m}:${s}.0`;
+      }, 1000);
+    }
+
+    // Marcar el botón de la fila correspondiente
+    document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+      const isCurrent = btn.id === ('timer-btn-' + data.test_case_id);
+      const span = btn.querySelector('span');
+      if (isCurrent) {
+        btn.disabled = false;
+        btn.classList.add('active');
+        if (span) span.textContent = '⏱ Corriendo...';
+      } else {
+        btn.disabled = true;
+        btn.classList.remove('active');
+        btn.title = '⚠ Detén o cancela el cronómetro antes de cambiar de caso';
+        if (span) span.textContent = 'Cronometrar';
+      }
+    });
+
+  } catch (e) {
+    console.warn('No se pudo restaurar cronómetro activo:', e);
+  }
+}
+
+async function cancelTimer() {
+  if (!_timerSessionId) return;
+  if (!confirm('¿Cancelar el cronómetro? El tiempo transcurrido NO se guardará y el caso seguirá como Pendiente.')) return;
+
+  const sessionId = _timerSessionId;
+  _resetTimerUI();
+
+  try {
+    await fetch(`${API_BASE}/api/timer/cancel?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+    showToast('🗑 Cronómetro cancelado — sin cambios guardados', 'info');
+  } catch (e) {
+    // ignorar error de red, ya se reseteó UI
+  }
+}
+
+
 function stopTimer() {
   if (!_timerSessionId) return;
 
@@ -3134,23 +3412,33 @@ function stopTimer() {
   // 2. Notificar al backend que pause el cronómetro
   fetch(`${API_BASE}/api/timer/pause?session_id=${encodeURIComponent(_timerSessionId)}`, { method: 'POST' }).catch(() => {});
 
-  // 3. Abrir modal con el tiempo exacto congelado
-  const caseSelect = document.getElementById('timerCaseSelect');
-  const selectedText = caseSelect && caseSelect.selectedIndex >= 0 ? caseSelect.options[caseSelect.selectedIndex].text : 'Caso de prueba';
+  // 3. Abrir modal con el caso seleccionado y el tiempo exacto congelado
   const mins = String(Math.floor(_timerSeconds / 60)).padStart(2, '0');
   const secs = String(_timerSeconds % 60).padStart(2, '0');
-  openExecutionModal(null, selectedText, `⏱ Tiempo Registrado: ${mins}:${secs}.0`);
+  const timeNote = `⏱ Tiempo Registrado: ${mins}:${secs}.0`;
+
+  let tc = _timerSelectedCaseId && window._execCasesMap ? window._execCasesMap[_timerSelectedCaseId] : null;
+  const caseSelect = document.getElementById('timerCaseSelect');
+  const selectedText = tc ? tc.title : (caseSelect && caseSelect.selectedIndex >= 0 ? caseSelect.options[caseSelect.selectedIndex].text : 'Caso de prueba');
+  const caseBadge = tc ? tc.case_id : `⏱ ${mins}:${secs}.0`;
+
+  openExecutionModal(tc ? tc.db_id : null, caseBadge, selectedText || timeNote);
 }
 
 async function loadTimerStats() {
+  // IDs en el panel mini (sidebar integrado) y en la pestaña completa de Historial
   const kpiCount = document.getElementById('timerKpiCount');
   const kpiAvg = document.getElementById('timerKpiAvg');
   const kpiTotal = document.getElementById('timerKpiTotal');
+  const kpiCountFull = document.getElementById('timerKpiCountFull');
+  const kpiAvgFull = document.getElementById('timerKpiAvgFull');
+  const kpiTotalFull = document.getElementById('timerKpiTotalFull');
   const kpiMin = document.getElementById('timerKpiMin');
   const kpiMax = document.getElementById('timerKpiMax');
   const barsContainer = document.getElementById('timerModuleBarsList');
   const typeGrid = document.getElementById('timerTypeGrid');
   const tbody = document.getElementById('timerHistoryBody');
+  const miniHistory = document.getElementById('timerMiniHistory');
 
   try {
     const res = await fetch(`${API_BASE}/api/timer/stats?project_name=${encodeURIComponent(currentProject)}`);
@@ -3158,13 +3446,18 @@ async function loadTimerStats() {
 
     if (!data) return;
 
-    // 1. KPIs
-    if (kpiCount) kpiCount.textContent = data.total_executed || 0;
-    if (kpiAvg) kpiAvg.textContent = `${Math.round(data.avg_seconds || 0)}s`;
-    if (kpiTotal) {
-      const tot = Math.round(data.total_seconds || 0);
-      kpiTotal.textContent = tot >= 60 ? `${Math.floor(tot / 60)}m ${tot % 60}s` : `${tot}s`;
-    }
+    // 1. KPIs — sidebar mini + pestaña historial completa
+    const totalExec = data.total_executed || 0;
+    const avgSec = Math.round(data.avg_seconds || 0);
+    const totSec = Math.round(data.total_seconds || 0);
+    const totStr = totSec >= 60 ? `${Math.floor(totSec / 60)}m ${totSec % 60}s` : `${totSec}s`;
+
+    if (kpiCount) kpiCount.textContent = totalExec;
+    if (kpiAvg) kpiAvg.textContent = `${avgSec}s`;
+    if (kpiTotal) kpiTotal.textContent = totStr;
+    if (kpiCountFull) kpiCountFull.textContent = totalExec;
+    if (kpiAvgFull) kpiAvgFull.textContent = `${avgSec}s`;
+    if (kpiTotalFull) kpiTotalFull.textContent = totStr;
     if (kpiMin) kpiMin.textContent = `${Math.round(data.min_seconds || 0)}s`;
     if (kpiMax) kpiMax.textContent = `${Math.round(data.max_seconds || 0)}s`;
 
@@ -3276,6 +3569,54 @@ async function loadTimerStats() {
       }
     }
 
+    // 5. Mini historial en el panel lateral integrado (últimas 5 sesiones)
+    //    Filtrar al grupo activo si hay uno seleccionado
+    if (miniHistory) {
+      const allHistory = data.history || [];
+
+      // Si hay un grupo (matriz) activo, mostrar solo sus casos
+      let history = allHistory;
+      if (_execCurrentGroup && _execCurrentGroup.cases && _execCurrentGroup.cases.length > 0) {
+        // Filtrar por UUID (db_id) para no mezclar con matrices antiguas que comparten el mismo case_id textual
+        const activeCaseUUIDs = new Set(_execCurrentGroup.cases.map(c => c.db_id || c.id));
+        history = allHistory.filter(s => activeCaseUUIDs.has(s.test_case_id));
+
+        // Recalcular KPIs del panel solo con los casos del grupo activo
+        const groupExecs = history;
+        const groupTotal = groupExecs.length;
+        const groupSumSec = groupExecs.reduce((a, s) => a + (s.execution_time_seconds || 0), 0);
+        const groupAvg = groupTotal > 0 ? Math.round(groupSumSec / groupTotal) : 0;
+        const groupTotStr = groupSumSec >= 60
+          ? `${Math.floor(groupSumSec / 60)}m ${Math.round(groupSumSec % 60)}s`
+          : `${Math.round(groupSumSec)}s`;
+
+        if (kpiCount) kpiCount.textContent = groupTotal;
+        if (kpiAvg)   kpiAvg.textContent   = `${groupAvg}s`;
+        if (kpiTotal) kpiTotal.textContent  = groupTotStr;
+      }
+
+      const last5 = history.slice(0, 5);
+      if (last5.length === 0) {
+        miniHistory.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);text-align:center;padding:0.75rem 0;">Sin registros aún</div>';
+      } else {
+        miniHistory.innerHTML = last5.map(s => {
+          const secs = Math.round(s.execution_time_seconds || 0);
+          const t = secs >= 60 ? `${Math.floor(secs / 60)}m${secs % 60}s` : `${secs}s`;
+          const badgeCls = s.result === 'CUMPLE' ? 'status-cumple' : s.result === 'NO CUMPLE' ? 'status-nocumple' : 'status-pending';
+          const isCritical = s.result === 'NO CUMPLE';
+          return `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0.5rem;background:var(--bg-panel);border-radius:6px;gap:0.4rem;">
+              <span style="font-size:0.68rem;color:var(--accent-secondary);font-weight:600;flex-shrink:0;">${s.case_id || '?'}</span>
+              <span style="font-size:0.68rem;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.title || '—'}</span>
+              <span style="font-size:0.7rem;font-weight:700;color:var(--text-primary);flex-shrink:0;">${t}</span>
+              <span class="exec-status ${badgeCls}" style="font-size:0.62rem;padding:0.1rem 0.35rem;flex-shrink:0;">${s.result || '—'}</span>
+              <span style="font-size:0.6rem;font-weight:700;flex-shrink:0;padding:0.1rem 0.3rem;border-radius:4px;${isCritical ? 'background:rgba(239,68,68,0.15);color:#ef4444;' : 'background:rgba(16,185,129,0.1);color:#10b981;'}">${isCritical ? '🔴 Crítico' : '✓ OK'}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
   } catch (e) {
     console.error('Error cargando estadísticas del cronómetro:', e);
   }
@@ -3301,10 +3642,39 @@ async function deleteTimerExecution(executionId) {
   }
 }
 
-function exportTimedExcel() {
-  const url = `${API_BASE}/api/test-cases/export/excel?project_name=${encodeURIComponent(currentProject)}`;
-  window.open(url, '_blank');
+async function exportTimedExcel() {
+  // Exporta la plantilla EOPA filtrada por el modulo Y archivo exacto de la matriz activa
+  try {
+    const activeModule   = (_execCurrentGroup && _execCurrentGroup.module)      ? _execCurrentGroup.module      : null;
+    const activeFile     = (_execCurrentGroup && _execCurrentGroup.created_at)   ? _execCurrentGroup.created_at  : null;
+    // created_at puede ser el export_file (nombre .xlsx) o una fecha ISO
+    const isExportFile   = activeFile && activeFile.endsWith('.xlsx');
+
+    let url = `${API_BASE}/api/test-cases/export/excel?project_name=${encodeURIComponent(currentProject)}`;
+    if (activeModule)              url += `&module=${encodeURIComponent(activeModule)}`;
+    if (isExportFile && activeFile) url += `&export_file=${encodeURIComponent(activeFile)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.detail || 'No hay casos para exportar aún.', 'error');
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const fecha = new Date().toLocaleDateString('es-CO').replace(/\//g, '-');
+    const label = activeModule || currentProject;
+    a.download = `Casos_${label}_${fecha}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('✅ Plantilla EOPA exportada con tiempos de ejecución', 'success');
+  } catch (e) {
+    showToast('Error al exportar: ' + e.message, 'error');
+  }
 }
+
 
 // ══════════════════════════════════════════════════════════════
 // FILTROS Y MODALES DE BASE DE CONOCIMIENTO & EJECUCIÓN
@@ -3930,19 +4300,23 @@ async function queryCielAI(text) {
       streamTextSpan = streamLine.querySelector('.jlp-text');
     }
 
-    // Leer el stream SSE de Ollama
+    // Leer el stream SSE de Ollama con buffer acumulativo
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const textChunk = decoder.decode(value, { stream: true });
-      const lines = textChunk.split('\n');
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      // Mantener la última línea (posiblemente incompleta) en el buffer
+      buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || !line.startsWith('data: ')) continue;
         const data = line.slice(6).trim();
         if (data === '[DONE]') break;
         try {
@@ -3954,10 +4328,34 @@ async function queryCielAI(text) {
             return;
           }
           if (parsed.chunk) {
+            fullResponse += parsed.chunk;
             if (!hasReceivedFirstChunk) {
               hasReceivedFirstChunk = true;
               if (streamTextSpan) streamTextSpan.textContent = '';
             }
+            // Si la voz está activa, NO volcamos el texto de golpe antes de hablar
+            // Mantenemos el estado de espera para transcribir al ritmo de la voz
+            const ttsEnabledNow = window.PRQAVoice && PRQAVoice.isTTSEnabled();
+            if (streamTextSpan) {
+              if (ttsEnabledNow) {
+                streamTextSpan.innerHTML = '<span style="opacity:0.75;font-style:italic;">Generando respuesta...</span> <span class="stream-typing"></span>';
+              } else {
+                streamTextSpan.innerHTML = _formatLogText(fullResponse) + ' <span class="stream-typing"></span>';
+              }
+              if (body) body.scrollTop = body.scrollHeight;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Procesar cualquier dato restante en el buffer al finalizar
+    if (buffer.trim().startsWith('data: ')) {
+      const remainingData = buffer.trim().slice(6).trim();
+      if (remainingData !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(remainingData);
+          if (parsed.chunk) {
             fullResponse += parsed.chunk;
           }
         } catch (_) {}
@@ -3970,74 +4368,59 @@ async function queryCielAI(text) {
     const ttsActive = window.PRQAVoice && PRQAVoice.isTTSEnabled();
 
     if (ttsActive && fullResponse.trim().length > 0) {
-      // Sincronización perfecta: habla de forma consecutiva y el texto se escribe conforme habla
+      if (streamTextSpan) {
+        streamTextSpan.innerHTML = '<span style="opacity:0.75;font-style:italic;">Sintetizando voz...</span> <span class="stream-typing"></span>';
+        if (body) body.scrollTop = body.scrollHeight;
+      }
       if (window.PRQAVoice) PRQAVoice.setOrbState('speaking');
 
-      let currentTypedIndex = 0;
-      const totalLen = fullResponse.length;
-      if (window._activeTypewriterTimer) clearInterval(window._activeTypewriterTimer);
+      // Registrar callback para cuando el usuario silencie DURANTE la respuesta
+      // Esto evita que _isAIProcessing quede en true eternamente
+      window._onTTSMutedDuringSpeech = () => {
+        window._onTTSMutedDuringSpeech = null;
+        if (streamTextSpan) {
+          streamTextSpan.classList.remove('stream-typing');
+          streamTextSpan.innerHTML = _formatLogText(fullResponse);
+          if (body) body.scrollTop = body.scrollHeight;
+        }
+        if (window.PRQAVoice) PRQAVoice.setOrbState('idle');
+        _finishAI();
+      };
 
       PRQAVoice.speak(fullResponse, {
-        onStart: (cleanText) => {
+        onStart: () => {
           if (streamTextSpan) {
-            streamTextSpan.classList.add('stream-typing');
-            streamTextSpan.textContent = '';
+            streamTextSpan.innerHTML = '<span class="stream-typing"></span>';
           }
-
-          // Estimamos tiempo total de habla para sincronizar el tipeo con el audio
-          // ~13 caracteres por segundo a ritmo normal en español
-          const estimatedDurationMs = Math.max(1500, (cleanText.length / 13) * 1000);
-          const intervalMs = 45;
-          const charsPerTick = Math.max(1, (totalLen / (estimatedDurationMs / intervalMs)));
-
-          window._activeTypewriterTimer = setInterval(() => {
-            if (currentTypedIndex < totalLen) {
-              currentTypedIndex = Math.min(totalLen, currentTypedIndex + charsPerTick);
-              if (streamTextSpan) {
-                streamTextSpan.textContent = fullResponse.substring(0, Math.floor(currentTypedIndex));
-                if (body) body.scrollTop = body.scrollHeight;
-              }
-            }
-          }, intervalMs);
         },
-        onBoundary: (e, cleanText) => {
-          // Si el navegador emite eventos de límite de palabra, sincronizar de forma exacta
-          if (e.charIndex !== undefined && cleanText && cleanText.length > 0) {
-            const progressRatio = Math.min(1, (e.charIndex + (e.charLength || 4)) / cleanText.length);
-            const targetChar = Math.floor(progressRatio * totalLen);
-            if (targetChar > currentTypedIndex) {
-              currentTypedIndex = targetChar;
-              if (streamTextSpan) {
-                streamTextSpan.textContent = fullResponse.substring(0, currentTypedIndex);
-                if (body) body.scrollTop = body.scrollHeight;
-              }
-            }
+        onProgress: (currentChunk, progress) => {
+          // El texto se escribe y transcribe en tiempo real exactamente conforme va hablando
+          if (streamTextSpan) {
+            streamTextSpan.innerHTML = _formatLogText(currentChunk) + ' <span class="stream-typing"></span>';
+            if (body) body.scrollTop = body.scrollHeight;
           }
         },
         onEnd: () => {
-          if (window._activeTypewriterTimer) {
-            clearInterval(window._activeTypewriterTimer);
-            window._activeTypewriterTimer = null;
-          }
+          window._onTTSMutedDuringSpeech = null;
           if (streamTextSpan) {
             streamTextSpan.classList.remove('stream-typing');
             streamTextSpan.innerHTML = _formatLogText(fullResponse);
             if (body) body.scrollTop = body.scrollHeight;
           }
+          if (window.PRQAVoice) PRQAVoice.setOrbState('idle');
           _finishAI();
         }
       });
     } else {
-      // Si la voz está desactivada, mostrar el resultado completo formateado de inmediato
       if (streamTextSpan) {
         streamTextSpan.classList.remove('stream-typing');
-        if (fullResponse) {
+        if (fullResponse && fullResponse.trim().length > 0) {
           streamTextSpan.innerHTML = _formatLogText(fullResponse);
         } else {
           streamTextSpan.textContent = '(Sin respuesta de la IA)';
         }
+        if (body) body.scrollTop = body.scrollHeight;
       }
-      if (body) body.scrollTop = body.scrollHeight;
       _finishAI();
     }
 
@@ -4084,6 +4467,9 @@ function toggleTextInput() {
 }
 
 async function sendTextToAI() {
+  if (window.PRQAVoice && typeof PRQAVoice.unlockAudio === 'function') {
+    PRQAVoice.unlockAudio();
+  }
   if (window._isAIProcessing || (window.speechSynthesis && window.speechSynthesis.speaking)) {
     showToast('⚠️ CIEL AI está respondiendo. Espera a que termine o presiona DETENER.', 'warning');
     return;
@@ -4096,7 +4482,32 @@ async function sendTextToAI() {
   await queryCielAI(text);
 }
 
+// ======================================================
+// PESTANAS: Ejecutar Pruebas / Cronometro
+// ======================================================
+function switchExecTab(tab) {
+  const execContent  = document.getElementById('execTabContentExecute');
+  const timerContent = document.getElementById('execTabContentTimer');
+  const execTabBtn   = document.getElementById('execTabExecute');
+  const timerTabBtn  = document.getElementById('execTabTimer');
+
+  if (tab === 'execute') {
+    if (execContent)  execContent.classList.remove('hidden');
+    if (timerContent) timerContent.classList.add('hidden');
+    if (execTabBtn)   execTabBtn.classList.add('active');
+    if (timerTabBtn)  timerTabBtn.classList.remove('active');
+  } else {
+    if (execContent)  execContent.classList.add('hidden');
+    if (timerContent) timerContent.classList.remove('hidden');
+    if (execTabBtn)   execTabBtn.classList.remove('active');
+    if (timerTabBtn)  timerTabBtn.classList.add('active');
+    if (typeof loadTimerModule === 'function') loadTimerModule();
+  }
+}
+window.switchExecTab = switchExecTab;
+
 window.queryCielAI = queryCielAI;
+
 window.stopAI = stopAI;
 window.appendJarvisLog = appendJarvisLog;
 window.appendOrUpdateUserInterim = appendOrUpdateUserInterim;
@@ -4115,9 +4526,396 @@ window.selectResult = selectResult;
 window.saveExecution = saveExecution;
 window._setStopBtnActive = _setStopBtnActive;
 
+// ══════════════════════════════════════════════════════════════
+// Helpers seguros: Abrir detalle / editar desde el mapa de casos
+// ══════════════════════════════════════════════════════════════
+
+function openCaseDetailFromId(tcId) {
+  const tc = (window._execCasesMap || {})[tcId];
+  if (tc) {
+    openCaseDetailModal(tc);
+  } else {
+    showToast('No se encontró el caso de prueba.', 'error');
+  }
+}
+
+function openEditFromId(tcId) {
+  const tc = (window._execCasesMap || {})[tcId];
+  if (tc) {
+    openEditTestCaseModal(tcId, tc);
+  } else {
+    showToast('No se encontró el caso para editar.', 'error');
+  }
+}
+
+// ID del caso actualmente seleccionado para el cronómetro
+let _timerSelectedCaseId = null;
+
+function selectCaseForTimer(tcId) {
+  // Evitar cambiar de caso si hay una medición activa en curso
+  if (_timerRunning) {
+    showToast('⚠️ El cronómetro está corriendo. Detén, finaliza o cancela la sesión actual antes de cambiar de caso.', 'warning');
+    return;
+  }
+
+  const tc = (window._execCasesMap || {})[tcId];
+  if (!tc) return;
+
+  _timerSelectedCaseId = tcId;
+
+  // Highlight visual: quitar selección previa, aplicar a la nueva fila
+  document.querySelectorAll('.exec-table-row').forEach(r => r.classList.remove('timer-row-selected'));
+  const row = document.getElementById('exec-row-' + tcId);
+  if (row) row.classList.add('timer-row-selected');
+
+  // Actualizar estado activo y texto en botones de la tabla
+  document.querySelectorAll('.exec-btn-timer-pill').forEach(btn => {
+    btn.classList.remove('active');
+    const span = btn.querySelector('span');
+    if (span) span.textContent = 'Cronometrar';
+  });
+  const activeBtn = document.getElementById('timer-btn-' + tcId);
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    const span = activeBtn.querySelector('span');
+    if (span) span.textContent = 'En Cronómetro';
+  }
+
+  // Actualizar el display en el panel del cronómetro
+  const display = document.getElementById('timerSelectedCaseDisplay');
+  const textEl = document.getElementById('timerSelectedCaseText');
+  if (display) {
+    display.style.borderColor = 'rgba(0,156,166,0.45)';
+    display.style.background = 'rgba(0,156,166,0.06)';
+  }
+  if (textEl) {
+    textEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:0.3rem;width:100%;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;">
+          <span style="font-weight:700;color:var(--accent-primary);font-size:0.75rem;">${tc.case_id}</span>
+          <button type="button" onclick="openCaseDetailFromId('${tc.db_id}')" class="btn-ghost" style="font-size:0.68rem;padding:0.15rem 0.5rem;height:auto;gap:0.25rem;border:1px solid rgba(0,156,166,0.3);background:rgba(0,156,166,0.06);border-radius:4px;cursor:pointer;" title="Ver pasos y detalles completos">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            Ver caso
+          </button>
+        </div>
+        <div style="color:var(--text-primary);font-size:0.72rem;line-height:1.3;white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${tc.title}</div>
+      </div>
+    `;
+  }
+
+  showToast(`⏱ Caso vinculado al cronómetro: ${tc.case_id}`, 'info');
+}
+
+function recordManualResultForSelectedCase() {
+  if (_timerRunning) {
+    showToast('⚠️ Hay un cronómetro activo en curso. Detén o cancela la sesión primero.', 'warning');
+    return;
+  }
+  let tc = _timerSelectedCaseId && window._execCasesMap ? window._execCasesMap[_timerSelectedCaseId] : null;
+  if (!tc) {
+    showToast('Por favor selecciona un caso de la lista primero.', 'info');
+    return;
+  }
+  openExecutionModal(tc.db_id, tc.case_id, tc.title);
+}
+
+window.openCaseDetailFromId = openCaseDetailFromId;
+window.openEditFromId = openEditFromId;
+window.selectCaseForTimer = selectCaseForTimer;
+window.recordManualResultForSelectedCase = recordManualResultForSelectedCase;
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO: VER DETALLES COMPLETOS DEL CASO DE PRUEBA
+// ══════════════════════════════════════════════════════════════
+
+let _currentDetailCase = null; // Cache del caso actualmente en el modal de detalle
+
+
+function openCaseDetailModal(tcRawOrJson) {
+  let tc;
+  try {
+    tc = typeof tcRawOrJson === 'string' ? JSON.parse(tcRawOrJson) : tcRawOrJson;
+  } catch (e) {
+    showToast('Error al cargar detalles del caso.', 'error');
+    return;
+  }
+  _currentDetailCase = tc;
+
+  // Llenar header
+  const idEl = document.getElementById('caseDetailModalId');
+  const titleEl = document.getElementById('caseDetailModalTitle');
+  if (idEl) idEl.textContent = tc.case_id || '—';
+  if (titleEl) titleEl.textContent = tc.title || 'Caso de Prueba';
+
+  // Meta chips (tipo, severidad, módulo, técnica)
+  const chipsEl = document.getElementById('caseDetailMetaChips');
+  if (chipsEl) {
+    const chipStyle = 'display:inline-flex;align-items:center;gap:0.3rem;padding:0.25rem 0.6rem;border-radius:9999px;font-size:0.7rem;font-weight:600;';
+    const sevColors = {
+      'Bloqueante': 'background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;',
+      'Crítico': 'background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;',
+      'Tolerable': 'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);color:#10b981;',
+      'Interfaz de usuario': 'background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.3);color:#8b5cf6;',
+    };
+    const sevColor = sevColors[tc.severity] || 'background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.25);color:var(--text-secondary);';
+    chipsEl.innerHTML = `
+      <span style="${chipStyle}background:rgba(0,156,166,0.12);border:1px solid rgba(0,156,166,0.3);color:var(--accent-primary);">📋 ${tc.test_type || '—'}</span>
+      <span style="${chipStyle}${sevColor}">⚠ ${tc.severity || 'Tolerable'}</span>
+      ${tc.module ? `<span style="${chipStyle}background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.2);color:var(--text-secondary);">📦 ${tc.module}</span>` : ''}
+      ${tc.technique ? `<span style="${chipStyle}background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);color:#a78bfa;">🔬 ${tc.technique}</span>` : ''}
+      <span style="${chipStyle}${tc.status === 'Ejecutado' ? 'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);color:#10b981;' : 'background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;'}">
+        ${tc.status === 'Ejecutado' ? '✅ Ejecutado' : '⏳ Pendiente'}
+      </span>
+    `;
+  }
+
+  // Precondiciones
+  const preEl = document.getElementById('caseDetailPreconditions');
+  if (preEl) preEl.textContent = tc.preconditions || '—';
+
+  // Pasos
+  const stepsList = document.getElementById('caseDetailStepsList');
+  if (stepsList) {
+    let steps = tc.steps || [];
+    if (typeof steps === 'string') {
+      try { steps = JSON.parse(steps); } catch (_) { steps = [steps]; }
+    }
+    if (!Array.isArray(steps) || steps.length === 0) {
+      stepsList.innerHTML = '<li style="color:var(--text-muted);font-style:italic;">Sin pasos definidos.</li>';
+    } else {
+      stepsList.innerHTML = steps.map((step, idx) => {
+        const text = typeof step === 'string' ? step : (step.action || step.step || JSON.stringify(step));
+        return `<li style="margin-bottom:0.4rem;line-height:1.5;"><strong style="color:var(--accent-primary);">Paso ${idx + 1}:</strong> ${text}</li>`;
+      }).join('');
+    }
+  }
+
+  // Resultado esperado
+  const expEl = document.getElementById('caseDetailExpected');
+  if (expEl) expEl.textContent = tc.expected_result || '—';
+
+  // Criterios de aceptación
+  const accEl = document.getElementById('caseDetailAcc');
+  if (accEl) accEl.textContent = tc.acceptance_criteria || '—';
+
+  // Resultado registrado (si ya fue ejecutado)
+  const resultSection = document.getElementById('caseDetailResultSection');
+  const resultEl = document.getElementById('caseDetailResult');
+  const notesEl = document.getElementById('caseDetailNotes');
+  if (resultSection && tc.result) {
+    resultSection.style.display = '';
+    const isPass = tc.result === 'CUMPLE';
+    if (resultEl) resultEl.innerHTML = `<span style="color:${isPass ? '#10b981' : '#ef4444'};">${tc.result}</span>`;
+    if (notesEl) notesEl.textContent = tc.notes ? `📝 ${tc.notes}` : '';
+  } else if (resultSection) {
+    resultSection.style.display = 'none';
+  }
+
+  // Actualizar botón de ejecutar
+  const execBtn = document.getElementById('caseDetailExecuteBtn');
+  if (execBtn) {
+    if (tc.status === 'Ejecutado') {
+      execBtn.textContent = 'Re-ejecutar';
+    } else {
+      execBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg> Registrar Resultado`;
+    }
+  }
+
+  document.getElementById('caseDetailModal').classList.remove('hidden');
+}
+
+function closeCaseDetailModal() {
+  document.getElementById('caseDetailModal').classList.add('hidden');
+  _currentDetailCase = null;
+}
+
+function editFromDetailModal() {
+  if (!_currentDetailCase) return;
+  closeCaseDetailModal();
+  openEditTestCaseModal(_currentDetailCase.db_id || _currentDetailCase.id, _currentDetailCase);
+}
+
+function executeFromDetailModal() {
+  if (!_currentDetailCase) return;
+  const tc = _currentDetailCase;
+  closeCaseDetailModal();
+  openExecutionModal(tc.db_id || tc.id, tc.case_id, tc.title);
+}
+
+window.openCaseDetailModal = openCaseDetailModal;
+window.closeCaseDetailModal = closeCaseDetailModal;
+window.editFromDetailModal = editFromDetailModal;
+window.executeFromDetailModal = executeFromDetailModal;
+
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO: CREAR / EDITAR CASO DE PRUEBA MANUAL
+// ══════════════════════════════════════════════════════════════
+
+let _editTcStepCount = 0;
+
+function openEditTestCaseModal(tcId, tcDataRawOrObj) {
+  let tc;
+  try {
+    tc = typeof tcDataRawOrObj === 'string' ? JSON.parse(tcDataRawOrObj) : tcDataRawOrObj;
+  } catch (_) {
+    tc = null;
+  }
+
+  document.getElementById('editTcMode').value = tcId ? 'edit' : 'create';
+  document.getElementById('editTcId').value = tcId || '';
+  document.getElementById('editTestCaseModalTitle').textContent = tcId ? 'Editar Caso de Prueba' : 'Nuevo Caso de Prueba Manual';
+
+  // Pre-cargar campos si es edición
+  if (tc) {
+    document.getElementById('editTcTitle').value = tc.title || '';
+    const typeEl = document.getElementById('editTcType');
+    if (typeEl) typeEl.value = tc.test_type || 'FUNCIONALES';
+    const sevEl = document.getElementById('editTcSeverity');
+    if (sevEl) sevEl.value = tc.severity || 'Tolerable';
+    document.getElementById('editTcModule').value = tc.module || '';
+    document.getElementById('editTcTechnique').value = tc.technique || '';
+    document.getElementById('editTcPreconditions').value = tc.preconditions || '';
+    document.getElementById('editTcExpected').value = tc.expected_result || '';
+    document.getElementById('editTcAcceptance').value = tc.acceptance_criteria || '';
+
+    // Cargar pasos
+    let steps = tc.steps || [];
+    if (typeof steps === 'string') {
+      try { steps = JSON.parse(steps); } catch (_) { steps = steps ? [steps] : []; }
+    }
+    _editTcStepCount = 0;
+    const stepsContainer = document.getElementById('editTcStepsList');
+    if (stepsContainer) stepsContainer.innerHTML = '';
+    (Array.isArray(steps) ? steps : []).forEach(step => {
+      const text = typeof step === 'string' ? step : (step.action || step.step || '');
+      addTcStep(text);
+    });
+    if (steps.length === 0) addTcStep(); // Al menos 1 paso vacío
+  } else {
+    // Nuevo caso: limpiar todos los campos
+    ['editTcTitle', 'editTcModule', 'editTcTechnique', 'editTcPreconditions', 'editTcExpected', 'editTcAcceptance'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('editTcType').value = 'FUNCIONALES';
+    document.getElementById('editTcSeverity').value = 'Tolerable';
+    _editTcStepCount = 0;
+    const stepsContainer = document.getElementById('editTcStepsList');
+    if (stepsContainer) stepsContainer.innerHTML = '';
+    addTcStep(); // Agregar primer paso vacío
+  }
+
+  document.getElementById('editTestCaseModal').classList.remove('hidden');
+}
+
+function openCreateManualCaseModal() {
+  openEditTestCaseModal(null, null);
+}
+
+function closeEditTestCaseModal() {
+  document.getElementById('editTestCaseModal').classList.add('hidden');
+}
+
+function addTcStep(defaultText = '') {
+  _editTcStepCount++;
+  const container = document.getElementById('editTcStepsList');
+  if (!container) return;
+  const idx = _editTcStepCount;
+  const row = document.createElement('div');
+  row.className = 'tc-step-row';
+  row.id = `tcStepRow${idx}`;
+  row.style.cssText = 'display:flex;align-items:center;gap:0.4rem;';
+  row.innerHTML = `
+    <span style="min-width:22px;font-size:0.72rem;font-weight:700;color:var(--accent-primary);text-align:right;">${idx}.</span>
+    <input type="text" class="form-input" style="flex:1;padding:0.4rem 0.65rem;font-size:0.78rem;" 
+           placeholder="Descripción del paso ${idx}..." value="${defaultText.replace(/"/g, '&quot;')}" />
+    <button type="button" style="padding:0.3rem;background:transparent;border:none;cursor:pointer;color:var(--text-muted);opacity:0.7;" 
+            onclick="document.getElementById('tcStepRow${idx}').remove();" title="Eliminar paso">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  `;
+  container.appendChild(row);
+}
+
+async function saveTestCaseEdits() {
+  const mode = document.getElementById('editTcMode').value;
+  const tcId = document.getElementById('editTcId').value;
+  const title = document.getElementById('editTcTitle').value.trim();
+
+  if (!title) {
+    showToast('El título del caso es obligatorio.', 'error');
+    document.getElementById('editTcTitle').focus();
+    return;
+  }
+
+  // Recolectar pasos del DOM
+  const stepsRows = document.querySelectorAll('#editTcStepsList .tc-step-row input[type="text"]');
+  const steps = Array.from(stepsRows).map(inp => inp.value.trim()).filter(s => s);
+
+  const payload = {
+    title,
+    test_type: document.getElementById('editTcType').value,
+    severity: document.getElementById('editTcSeverity').value,
+    module: document.getElementById('editTcModule').value.trim(),
+    technique: document.getElementById('editTcTechnique').value.trim(),
+    preconditions: document.getElementById('editTcPreconditions').value.trim(),
+    steps,
+    expected_result: document.getElementById('editTcExpected').value.trim(),
+    acceptance_criteria: document.getElementById('editTcAcceptance').value.trim(),
+  };
+
+  const saveBtn = document.getElementById('saveEditTestCaseBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Guardando...'; }
+
+  try {
+    let res, data;
+
+    if (mode === 'edit' && tcId) {
+      // PUT /api/test-cases/{id}
+      res = await fetch(`${API_BASE}/api/test-cases/${tcId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      // POST /api/test-cases/manual
+      const project = currentProject || 'Proyectos';
+      res = await fetch(`${API_BASE}/api/test-cases/manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, project_name: project }),
+      });
+    }
+
+    data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Error al guardar.');
+
+    closeEditTestCaseModal();
+    showToast(mode === 'edit' ? '✅ Caso actualizado correctamente.' : '✅ Caso manual creado correctamente.', 'success');
+
+    // Refrescar la vista de ejecución actual si está activa
+    if (typeof refreshExecDetail === 'function') refreshExecDetail();
+
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Guardar Caso`;
+    }
+  }
+}
+
+window.openEditTestCaseModal = openEditTestCaseModal;
+window.openCreateManualCaseModal = openCreateManualCaseModal;
+window.closeEditTestCaseModal = closeEditTestCaseModal;
+window.addTcStep = addTcStep;
+window.saveTestCaseEdits = saveTestCaseEdits;
+
 // Inicializar botón DETENER en estado inactivo / en espera
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => _setStopBtnActive(false));
 } else {
   _setStopBtnActive(false);
 }
+

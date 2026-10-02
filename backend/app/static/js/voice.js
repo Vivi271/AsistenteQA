@@ -9,11 +9,11 @@
 // ══════════════════════════════════════════════════════════════
 const VoiceConfig = {
   enabled: true,          // TTS activado por defecto
-  rate: 0.95,             // Velocidad de habla (0.1 - 10)
-  pitch: 0.85,            // Tono (0 - 2), < 1 es más grave/robótico
-  volume: 0.9,            // Volumen (0 - 1)
+  rate: 0.95,             // Velocidad natural y fluida
+  pitch: 0.95,            // Tono natural masculino, sobrio y limpio
+  volume: 1.0,            // Volumen al 100%
   lang: 'es-ES',          // Idioma preferido
-  maxChars: 1200,         // Máximo de caracteres a leer (trunca respuestas largas)
+  maxChars: 1800,         // Máximo de caracteres a leer
 };
 
 // Estado del módulo
@@ -22,15 +22,48 @@ let _sttRecognition = null;
 let _isListening = false;
 let _ttsEnabled = true;   // Toggle en caliente
 let _currentUtterance = null;
+let _currentSpeechId = 0;
+let _ttsKeepAliveTimer = null;
+let _speechStartTime = 0;  // Marca de tiempo cuando el mic realmente inicia
+const STT_MIN_DELAY_MS = 450; // ms mínimos antes de mostrar transcripción (evita fantasy results)
+
+// Registro global para evitar que V8 haga Garbage Collection de las utterances en vuelo
+window._prqaActiveUtterances = window._prqaActiveUtterances || [];
 
 // ══════════════════════════════════════════════════════════════
-// Inicialización
+// Inicialización y Desbloqueo de Audio (Chrome Autoplay Policy)
 // ══════════════════════════════════════════════════════════════
+let _audioUnlocked = false;
+
+function unlockAudio() {
+  if (!window.speechSynthesis) return;
+  _audioUnlocked = true;
+
+  try {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      if (!window._prqaAudioCtx) window._prqaAudioCtx = new AudioCtx();
+      if (window._prqaAudioCtx.state === 'suspended') {
+        window._prqaAudioCtx.resume();
+      }
+    }
+  } catch (_) {}
+}
+
 function initVoice() {
   _loadVoices();
   if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
     window.speechSynthesis.onvoiceschanged = _loadVoices;
   }
+
+  // Registrar desbloqueo en interacciones reales del usuario
+  const unlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown'];
+  unlockEvents.forEach(evt => {
+    document.addEventListener(evt, unlockAudio, { passive: true });
+  });
 
   // Inicializar reconocimiento si está disponible
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -47,102 +80,362 @@ function initVoice() {
     _sttRecognition.onstart = _onSpeechStart;
   }
 
-  console.log('[PRQA Voice] Módulo de voz inicializado.');
+  console.log('[PRQA Voice] Módulo de voz inicializado con soporte multivoz y anti-bloqueo.');
+}
+
+/**
+ * Resuelve dinámicamente la mejor voz en español disponible en el sistema.
+ * Prioriza voces nativas de alta calidad (neurales) de macOS/Chrome.
+ */
+function _resolveSpanishVoice() {
+  if (!window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (voices.length === 0) return null;
+
+  // 1. Voces masculinas de alta calidad en español (estilo Jarvis)
+  //    macOS: Jorge (muy natural y sobria), Diego, Eddy
+  //    Windows/Edge: Microsoft Pablo, Microsoft Raúl, Microsoft Álvaro
+  const preferredOrder = [
+    'Jorge',
+    'Diego',
+    'Microsoft Pablo',
+    'Microsoft Raúl',
+    'Microsoft Álvaro',
+    'Eddy',
+    'Reed',
+    'Rocko',
+    'Juan',
+    'Carlos',
+    'Google español',
+    'Mónica',
+    'Paulina'
+  ];
+
+  for (const name of preferredOrder) {
+    const found = voices.find(v => {
+      const vName = (v.name || '').toLowerCase();
+      const vLang = (v.lang || '').replace('_', '-').toLowerCase();
+      return vName.includes(name.toLowerCase()) && (vLang.startsWith('es') || vName.includes('español') || vName.includes('spanish'));
+    });
+    if (found) return found;
+  }
+
+  // Búsqueda más amplia por nombre parcial
+  for (const name of preferredOrder) {
+    const found = voices.find(v => (v.name || '').toLowerCase().includes(name.toLowerCase()));
+    if (found) return found;
+  }
+
+  // Fallback: cualquier voz en español disponible
+  const anyEs = voices.find(v => {
+    const lang = (v.lang || '').replace('_', '-').toLowerCase();
+    return lang.startsWith('es') || (v.name && v.name.toLowerCase().includes('spanish'));
+  });
+  if (anyEs) return anyEs;
+
+  // Último fallback: voz por defecto del sistema
+  return voices.find(v => v.default) || voices[0] || null;
 }
 
 function _loadVoices() {
-  if (!window.speechSynthesis) return;
-  const voices = window.speechSynthesis.getVoices();
-
-  // Prioridad: voz en español, preferiblemente masculina o neural
-  const preferred = ['Google español', 'Microsoft Pablo', 'Microsoft Raúl', 'es-ES', 'es-MX', 'es-CO', 'es-419'];
-  _ttsVoice = null;
-
-  for (const pref of preferred) {
-    const found = voices.find(v => v.name === pref || v.lang.startsWith(pref) || v.name.includes(pref));
-    if (found) { _ttsVoice = found; break; }
-  }
-
-  // Fallback: cualquier voz en español
-  if (!_ttsVoice) {
-    _ttsVoice = voices.find(v => v.lang.startsWith('es')) || null;
+  _ttsVoice = _resolveSpanishVoice();
+  if (_ttsVoice) {
+    console.log('[PRQA Voice] Voz Jarvis seleccionada:', _ttsVoice.name, `(${_ttsVoice.lang})`);
   }
 }
 
+/**
+ * Divide el texto en oraciones naturales para evitar que Chrome detenga la síntesis
+ * después de 15 segundos en textos largos.
+ */
+/**
+ * Agrupa oraciones en bloques sustanciales (~220 chars mín) para que Chrome las reproduzca
+ * en pocos utterances grandes → sin micro-pausas → voz fluida y natural.
+ */
+function _splitTextIntoSentences(text) {
+  if (!text) return [];
+
+  // Partir el texto en oraciones individuales
+  const rawParts = text.match(/[^.!?]+[.!?]*/g) || [text];
+  const chunks = [];
+  let current = '';
+
+  for (const part of rawParts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    current += (current ? ' ' : '') + trimmed;
+    // Crear un chunk solo cuando acumulemos suficiente texto → elimina micro-pausas
+    if (current.length >= 220) {
+      chunks.push(current);
+      current = '';
+    }
+  }
+  // Agregar lo que sobre al último chunk
+  if (current.trim()) {
+    if (chunks.length > 0 && current.length < 100) {
+      // Si el remanente es muy corto, unirlo al último chunk
+      chunks[chunks.length - 1] += ' ' + current;
+    } else {
+      chunks.push(current);
+    }
+  }
+
+  // Seguridad: fragmentar cualquier chunk mayor a 450 chars por espacio
+  const result = [];
+  for (const chunk of chunks) {
+    if (chunk.length > 450) {
+      const sub = chunk.match(/.{1,420}(\s+|$)/g) || [chunk];
+      for (const s of sub) {
+        const t = s.trim();
+        if (t) result.push(t);
+      }
+    } else {
+      result.push(chunk);
+    }
+  }
+
+  return result.length > 0 ? result : [text.trim()];
+}
+
 // ══════════════════════════════════════════════════════════════
-// Text-to-Speech (CIEL AI habla)
+// Text-to-Speech (CIEL AI habla con Voz Neural Edge-TTS)
 // ══════════════════════════════════════════════════════════════
+let _currentAudio = null;
+let _syncAnimFrame = null;
 
 /**
- * Lee un texto en voz alta (CIEL AI).
+ * Lee un texto en voz alta con síntesis NEURAL de alta calidad (Edge-TTS Jarvis).
+ * Sincroniza la revelación del texto en tiempo real con la voz (escribe al tiempo).
  * @param {string} text - Texto a leer
- * @param {object} opts - Opciones opcionales { rate, pitch, volume }
+ * @param {object} opts - { rate, pitch, volume, onStart, onProgress, onEnd }
  */
-function speak(text, opts = {}) {
+async function speak(text, opts = {}) {
+  if (!_ttsEnabled) {
+    if (typeof opts.onEnd === 'function') opts.onEnd();
+    return;
+  }
+
+  const clean = _cleanTextForSpeech(text);
+  if (!clean || !clean.trim()) {
+    if (typeof opts.onEnd === 'function') opts.onEnd();
+    return;
+  }
+
+  // Generar ID único para esta secuencia de habla
+  const speechId = ++_currentSpeechId;
+  stopSpeaking();
+  _currentSpeechId = speechId;
+
+  // 1. Intentar con voz Neural en el backend (Edge-TTS Jarvis: Álvaro)
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: clean,
+        voice: opts.voice || 'es-ES-AlvaroNeural',
+        rate: opts.rate || '-3%',
+        pitch: opts.pitch || '-4Hz'
+      })
+    });
+
+    if (res.ok) {
+      if (speechId !== _currentSpeechId) return;
+      const blob = await res.blob();
+      if (speechId !== _currentSpeechId) return;
+
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      _currentAudio = audio;
+
+      audio.onplay = () => {
+        if (speechId !== _currentSpeechId) return;
+        _updateVoiceIndicator(true);
+        if (typeof opts.onStart === 'function') opts.onStart();
+
+        // Sincronización exacta en tiempo real (escribe al tiempo que habla)
+        const words = text.split(/(\s+)/);
+        const totalTokens = words.length;
+
+        function syncLoop() {
+          if (speechId !== _currentSpeechId || !audio || audio.paused || audio.ended) return;
+          const duration = audio.duration || 1;
+          const progress = Math.min(0.99, audio.currentTime / duration);
+          const currentTokenIndex = Math.min(totalTokens, Math.floor(progress * totalTokens) + 1);
+          const currentChunk = words.slice(0, currentTokenIndex).join('');
+
+          if (typeof opts.onProgress === 'function') {
+            opts.onProgress(currentChunk, progress);
+          }
+          _syncAnimFrame = requestAnimationFrame(syncLoop);
+        }
+        syncLoop();
+      };
+
+      audio.onended = () => {
+        if (_syncAnimFrame) cancelAnimationFrame(_syncAnimFrame);
+        _syncAnimFrame = null;
+        try { URL.revokeObjectURL(audioUrl); } catch (_) {}
+        _currentAudio = null;
+        _updateVoiceIndicator(false);
+        if (typeof opts.onProgress === 'function') {
+          opts.onProgress(text, 1.0);
+        }
+        if (typeof opts.onEnd === 'function') {
+          opts.onEnd();
+        }
+      };
+
+      audio.onerror = (err) => {
+        console.warn('[PRQA Voice] Error de audio neural, usando fallback local:', err);
+        if (_syncAnimFrame) cancelAnimationFrame(_syncAnimFrame);
+        _currentAudio = null;
+        _speakWebSpeechFallback(clean, text, opts, speechId);
+      };
+
+      try {
+        await audio.play();
+        return;
+      } catch (playErr) {
+        console.warn('[PRQA Voice] audio.play() bloqueado, probando Web Audio API...', playErr);
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!window._prqaAudioCtx && AudioCtx) window._prqaAudioCtx = new AudioCtx();
+          if (window._prqaAudioCtx) {
+            if (window._prqaAudioCtx.state === 'suspended') await window._prqaAudioCtx.resume();
+            const arrayBuf = await blob.arrayBuffer();
+            const audioBuf = await window._prqaAudioCtx.decodeAudioData(arrayBuf);
+            const source = window._prqaAudioCtx.createBufferSource();
+            source.buffer = audioBuf;
+            source.connect(window._prqaAudioCtx.destination);
+
+            _updateVoiceIndicator(true);
+            if (typeof opts.onStart === 'function') opts.onStart();
+
+            const startTime = window._prqaAudioCtx.currentTime;
+            const duration = audioBuf.duration;
+            const words = text.split(/(\s+)/);
+            const totalTokens = words.length;
+
+            function webAudioSync() {
+              if (speechId !== _currentSpeechId) return;
+              const elapsed = window._prqaAudioCtx.currentTime - startTime;
+              if (elapsed >= duration) return;
+              const progress = Math.min(0.99, elapsed / duration);
+              const currentTokenIndex = Math.min(totalTokens, Math.floor(progress * totalTokens) + 1);
+              if (typeof opts.onProgress === 'function') {
+                opts.onProgress(words.slice(0, currentTokenIndex).join(''), progress);
+              }
+              _syncAnimFrame = requestAnimationFrame(webAudioSync);
+            }
+            webAudioSync();
+
+            source.onended = () => {
+              if (_syncAnimFrame) cancelAnimationFrame(_syncAnimFrame);
+              _syncAnimFrame = null;
+              _updateVoiceIndicator(false);
+              if (typeof opts.onProgress === 'function') opts.onProgress(text, 1.0);
+              if (typeof opts.onEnd === 'function') opts.onEnd();
+            };
+
+            source.start(0);
+            return;
+          }
+        } catch (webaudioErr) {
+          console.warn('[PRQA Voice] Error Web Audio fallback:', webaudioErr);
+        }
+        _speakWebSpeechFallback(clean, text, opts, speechId);
+        return;
+      }
+    }
+  } catch (netErr) {
+    console.warn('[PRQA Voice] Endpoint TTS offline, usando fallback local:', netErr);
+  }
+
+  // Fallback a Web Speech API del navegador en caso de no haber red
+  _speakWebSpeechFallback(clean, text, opts, speechId);
+}
+
+function _speakWebSpeechFallback(clean, fullText, opts, speechId) {
   if (!_ttsEnabled || !window.speechSynthesis) {
     if (typeof opts.onEnd === 'function') opts.onEnd();
     return;
   }
 
-  // Detener cualquier habla previa
-  stopSpeaking();
-
-  // Limpiar texto: formatear saltos y bullets para que suene continuo y natural
-  const clean = _cleanTextForSpeech(text);
-  if (!clean.trim()) {
+  const sentences = _splitTextIntoSentences(clean);
+  if (sentences.length === 0) {
     if (typeof opts.onEnd === 'function') opts.onEnd();
     return;
   }
 
-  const utterance = new SpeechSynthesisUtterance(clean);
-  utterance.rate   = opts.rate   ?? VoiceConfig.rate;
-  utterance.pitch  = opts.pitch  ?? VoiceConfig.pitch;
-  utterance.volume = opts.volume ?? VoiceConfig.volume;
-  if (_ttsVoice) utterance.voice = _ttsVoice;
-  utterance.lang = VoiceConfig.lang;
+  _updateVoiceIndicator(true);
+  if (typeof opts.onStart === 'function') opts.onStart();
 
-  let finished = false;
-  const onDone = () => {
-    if (finished) return;
-    finished = true;
-    _currentUtterance = null;
-    _updateVoiceIndicator(false);
-    if (typeof opts.onEnd === 'function') opts.onEnd();
-  };
+  let currentIndex = 0;
+  let accumulatedChars = 0;
+  const totalChars = clean.length || 1;
 
-  utterance.onstart = () => {
+  function playNext() {
+    if (speechId !== _currentSpeechId) return;
+    if (currentIndex >= sentences.length) {
+      _updateVoiceIndicator(false);
+      if (typeof opts.onProgress === 'function') opts.onProgress(fullText, 1.0);
+      if (typeof opts.onEnd === 'function') opts.onEnd();
+      return;
+    }
+
+    const sText = sentences[currentIndex++];
+    const utterance = new SpeechSynthesisUtterance(sText);
+    const voice = _resolveSpanishVoice();
+    if (voice) utterance.voice = voice;
+    utterance.lang = voice?.lang || 'es-ES';
+    utterance.rate = 0.95;   // Velocidad fluida y natural
+    utterance.pitch = 0.95;  // Tono natural masculino, no distorsionado
+
     _currentUtterance = utterance;
-    _updateVoiceIndicator(true);
-    if (typeof opts.onStart === 'function') opts.onStart(clean);
-  };
+    window._prqaActiveUtterances.push(utterance);
 
-  utterance.onboundary = (e) => {
-    if (typeof opts.onBoundary === 'function') {
-      opts.onBoundary(e, clean);
+    utterance.onboundary = (evt) => {
+      if (typeof opts.onProgress === 'function' && evt.charIndex !== undefined) {
+        const estProgress = Math.min(0.98, (accumulatedChars + evt.charIndex) / totalChars);
+        const charsToShow = Math.floor(estProgress * fullText.length);
+        opts.onProgress(fullText.slice(0, charsToShow), estProgress);
+      }
+    };
+
+    utterance.onend = () => {
+      accumulatedChars += sText.length;
+      const idx = window._prqaActiveUtterances.indexOf(utterance);
+      if (idx !== -1) window._prqaActiveUtterances.splice(idx, 1);
+      if (typeof opts.onProgress === 'function') {
+        const estProgress = Math.min(1.0, accumulatedChars / totalChars);
+        const charsToShow = Math.floor(estProgress * fullText.length);
+        opts.onProgress(fullText.slice(0, charsToShow), estProgress);
+      }
+      playNext();
+    };
+
+    utterance.onerror = () => {
+      accumulatedChars += sText.length;
+      playNext();
+    };
+
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch (_) {
+      playNext();
     }
-  };
+  }
 
-  utterance.onend = onDone;
-
-  utterance.onerror = (e) => {
-    onDone();
-    if (e.error !== 'interrupted' && e.error !== 'canceled') {
-      console.warn('[PRQA Voice] TTS Error:', e.error);
-    }
-  };
-
-  window.speechSynthesis.speak(utterance);
+  playNext();
 }
 
-// Cola de habla secuencial para streaming de oraciones en tiempo real
+// Cola de habla secuencial para streaming
 let _speechQueue = [];
 let _isProcessingQueue = false;
 let _queueEndCallback = null;
 let _isStreamingActive = false;
 
-/**
- * Prepara la cola de voz para recibir oraciones en tiempo real mientras la IA genera texto.
- */
 function initStreamSpeech(onAllDone) {
   stopSpeaking();
   _speechQueue = [];
@@ -151,9 +444,6 @@ function initStreamSpeech(onAllDone) {
   _isStreamingActive = true;
 }
 
-/**
- * Añade una oración completada a la cola de voz y la reproduce de inmediato si no hay otra sonando.
- */
 function queueSentence(sentence) {
   if (!_ttsEnabled || !window.speechSynthesis) return;
   const clean = _cleanTextForSpeech(sentence);
@@ -162,9 +452,6 @@ function queueSentence(sentence) {
   _drainSpeechQueue();
 }
 
-/**
- * Avisa que la IA terminó de emitir texto. Si la cola ya se vació, notifica fin.
- */
 function finishStreamSpeech() {
   _isStreamingActive = false;
   if (_speechQueue.length === 0 && !_isProcessingQueue) {
@@ -185,18 +472,25 @@ function _drainSpeechQueue() {
   _isProcessingQueue = true;
 
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate   = VoiceConfig.rate;
-  utterance.pitch  = VoiceConfig.pitch;
-  utterance.volume = VoiceConfig.volume;
-  if (_ttsVoice) utterance.voice = _ttsVoice;
-  utterance.lang = VoiceConfig.lang;
+  const voice = _resolveSpanishVoice();
+  if (voice) {
+    utterance.voice = voice;
+    utterance.lang = voice.lang || 'es-ES';
+  } else {
+    utterance.lang = VoiceConfig.lang || 'es-ES';
+  }
 
-  utterance.onstart = () => {
-    _currentUtterance = utterance;
-    _updateVoiceIndicator(true);
-  };
+  utterance.rate   = VoiceConfig.rate;
+  utterance.pitch  = 1.0;
+  utterance.volume = VoiceConfig.volume;
+
+  _currentUtterance = utterance;
+  window._prqaActiveUtterances.push(utterance);
+  _updateVoiceIndicator(true);
 
   const onSentenceEnd = () => {
+    const idx = window._prqaActiveUtterances.indexOf(utterance);
+    if (idx !== -1) window._prqaActiveUtterances.splice(idx, 1);
     _currentUtterance = null;
     _isProcessingQueue = false;
     if (_speechQueue.length > 0) {
@@ -216,24 +510,53 @@ function _drainSpeechQueue() {
   utterance.onend = onSentenceEnd;
   utterance.onerror = (e) => {
     if (e.error !== 'interrupted' && e.error !== 'canceled') {
-      console.warn('[PRQA Voice] Chunk TTS error:', e.error);
+      console.warn('[PRQA Voice] Error de fragmento:', e.error);
     }
     onSentenceEnd();
   };
 
-  window.speechSynthesis.speak(utterance);
+  try {
+    window.speechSynthesis.speak(utterance);
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+  } catch (_) {
+    onSentenceEnd();
+  }
 }
 
-/** Detiene inmediatamente cualquier habla activa y vacía la cola. */
+/** Detiene inmediatamente cualquier habla activa y cancela animaciones. */
 function stopSpeaking() {
+  _currentSpeechId++;
+  if (_syncAnimFrame) {
+    cancelAnimationFrame(_syncAnimFrame);
+    _syncAnimFrame = null;
+  }
+  if (_currentAudio) {
+    try {
+      _currentAudio.pause();
+      _currentAudio.currentTime = 0;
+    } catch (_) {}
+    _currentAudio = null;
+  }
   _speechQueue = [];
   _isProcessingQueue = false;
   _isStreamingActive = false;
   _queueEndCallback = null;
-  if (window.speechSynthesis) {
-    try { window.speechSynthesis.cancel(); } catch (_) {}
-  }
+  window._prqaActiveUtterances = [];
   _currentUtterance = null;
+
+  if (window.speechSynthesis) {
+    try {
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+    } catch (_) {}
+  }
+  if (_ttsKeepAliveTimer) {
+    clearInterval(_ttsKeepAliveTimer);
+    _ttsKeepAliveTimer = null;
+  }
   _updateVoiceIndicator(false);
 }
 
@@ -245,28 +568,20 @@ function toggleTTS() {
   if (!_ttsEnabled) {
     stopSpeaking();
     showToast('🔇 Voz silenciada', 'info');
-    if (window._isAIProcessing && typeof _setStopBtnActive === 'function') {
-      // Si la IA estaba hablando y se silencia, liberar el estado
-      window._isAIProcessing = false;
-      _setStopBtnActive(false);
+    // Si la IA estaba respondiendo, delegar limpieza al callback registrado por app.js
+    // Esto garantiza que _isAIProcessing se libere correctamente a través de _finishAI()
+    if (typeof window._onTTSMutedDuringSpeech === 'function') {
+      try { window._onTTSMutedDuringSpeech(); } catch (_) {}
+    }
+    // Si no hay callback activo (silenciando cuando IA está idle), solo resetear orb visual
+    if (!window._isAIProcessing) {
       setOrbState('idle');
     }
   } else {
-    showToast('🔊 CIEL AI activada', 'success');
-    if (window._lastAIResponse) {
-      if (typeof _setStopBtnActive === 'function') _setStopBtnActive(true);
-      window._isAIProcessing = true;
-      setOrbState('speaking');
-      speak(window._lastAIResponse, {
-        onEnd: () => {
-          window._isAIProcessing = false;
-          if (typeof _setStopBtnActive === 'function') _setStopBtnActive(false);
-          setOrbState('idle');
-        }
-      });
-    }
+    showToast('🔊 CIEL AI activada (Voz Jarvis Neural)', 'success');
   }
 }
+
 
 function isTTSEnabled() { return _ttsEnabled; }
 
@@ -306,6 +621,8 @@ function toggleMic() {
     setOrbState('idle');
     _updateMicButton(false);
   } else {
+    stopSpeaking();
+    _speechStartTime = Date.now();
     try {
       _sttRecognition.start();
     } catch(e) {
@@ -320,6 +637,7 @@ function toggleMic() {
 
 function _onSpeechStart() {
   _isListening = true;
+  _speechStartTime = Date.now();  // ← Registrar el momento exacto en que el mic arranca
   _updateMicButton(true);
   setOrbState('listening');
   showToast('🎤 Escuchando... habla ahora', 'info');
@@ -340,6 +658,16 @@ function _onSpeechResult(event) {
     return;
   }
 
+  // ── GUARDIA ANTI-FANTASMA ────────────────────────────────────────
+  // Ignorar cualquier resultado (interim o final) que llegue antes de
+  // STT_MIN_DELAY_MS ms desde que el mic se activó.
+  // Esto evita que el browser Web Speech API transcriba ruido de fondo
+  // o sonidos del sistema que detecta al inicializar el micrófono.
+  const elapsed = Date.now() - _speechStartTime;
+  if (elapsed < STT_MIN_DELAY_MS) {
+    return;  // Demasiado pronto — descartar silenciosamente
+  }
+
   let interimTranscript = '';
   let finalTranscript = '';
 
@@ -353,7 +681,7 @@ function _onSpeechResult(event) {
 
   const currentDisplay = (finalTranscript + ' ' + interimTranscript).trim();
 
-  // Mostrar transcripción en tiempo real en el panel
+  // Mostrar transcripción en tiempo real en el panel (solo tras el delay)
   if (typeof appendOrUpdateUserInterim === 'function' && currentDisplay) {
     appendOrUpdateUserInterim(currentDisplay);
   }
@@ -567,6 +895,7 @@ window.PRQAVoice = {
   abortListening:     abortListening,
   isTTSEnabled:       isTTSEnabled,
   setOrbState:        setOrbState,
+  unlockAudio:        unlockAudio,
 };
 
 // Auto-inicialización

@@ -4300,19 +4300,23 @@ async function queryCielAI(text) {
       streamTextSpan = streamLine.querySelector('.jlp-text');
     }
 
-    // Leer el stream SSE de Ollama
+    // Leer el stream SSE de Ollama con buffer acumulativo
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const textChunk = decoder.decode(value, { stream: true });
-      const lines = textChunk.split('\n');
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      // Mantener la última línea (posiblemente incompleta) en el buffer
+      buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || !line.startsWith('data: ')) continue;
         const data = line.slice(6).trim();
         if (data === '[DONE]') break;
         try {
@@ -4324,10 +4328,34 @@ async function queryCielAI(text) {
             return;
           }
           if (parsed.chunk) {
+            fullResponse += parsed.chunk;
             if (!hasReceivedFirstChunk) {
               hasReceivedFirstChunk = true;
               if (streamTextSpan) streamTextSpan.textContent = '';
             }
+            // Si la voz está activa, NO volcamos el texto de golpe antes de hablar
+            // Mantenemos el estado de espera para transcribir al ritmo de la voz
+            const ttsEnabledNow = window.PRQAVoice && PRQAVoice.isTTSEnabled();
+            if (streamTextSpan) {
+              if (ttsEnabledNow) {
+                streamTextSpan.innerHTML = '<span style="opacity:0.75;font-style:italic;">Generando respuesta...</span> <span class="stream-typing"></span>';
+              } else {
+                streamTextSpan.innerHTML = _formatLogText(fullResponse) + ' <span class="stream-typing"></span>';
+              }
+              if (body) body.scrollTop = body.scrollHeight;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Procesar cualquier dato restante en el buffer al finalizar
+    if (buffer.trim().startsWith('data: ')) {
+      const remainingData = buffer.trim().slice(6).trim();
+      if (remainingData !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(remainingData);
+          if (parsed.chunk) {
             fullResponse += parsed.chunk;
           }
         } catch (_) {}
@@ -4340,74 +4368,59 @@ async function queryCielAI(text) {
     const ttsActive = window.PRQAVoice && PRQAVoice.isTTSEnabled();
 
     if (ttsActive && fullResponse.trim().length > 0) {
-      // Sincronización perfecta: habla de forma consecutiva y el texto se escribe conforme habla
+      if (streamTextSpan) {
+        streamTextSpan.innerHTML = '<span style="opacity:0.75;font-style:italic;">Sintetizando voz...</span> <span class="stream-typing"></span>';
+        if (body) body.scrollTop = body.scrollHeight;
+      }
       if (window.PRQAVoice) PRQAVoice.setOrbState('speaking');
 
-      let currentTypedIndex = 0;
-      const totalLen = fullResponse.length;
-      if (window._activeTypewriterTimer) clearInterval(window._activeTypewriterTimer);
+      // Registrar callback para cuando el usuario silencie DURANTE la respuesta
+      // Esto evita que _isAIProcessing quede en true eternamente
+      window._onTTSMutedDuringSpeech = () => {
+        window._onTTSMutedDuringSpeech = null;
+        if (streamTextSpan) {
+          streamTextSpan.classList.remove('stream-typing');
+          streamTextSpan.innerHTML = _formatLogText(fullResponse);
+          if (body) body.scrollTop = body.scrollHeight;
+        }
+        if (window.PRQAVoice) PRQAVoice.setOrbState('idle');
+        _finishAI();
+      };
 
       PRQAVoice.speak(fullResponse, {
-        onStart: (cleanText) => {
+        onStart: () => {
           if (streamTextSpan) {
-            streamTextSpan.classList.add('stream-typing');
-            streamTextSpan.textContent = '';
+            streamTextSpan.innerHTML = '<span class="stream-typing"></span>';
           }
-
-          // Estimamos tiempo total de habla para sincronizar el tipeo con el audio
-          // ~13 caracteres por segundo a ritmo normal en español
-          const estimatedDurationMs = Math.max(1500, (cleanText.length / 13) * 1000);
-          const intervalMs = 45;
-          const charsPerTick = Math.max(1, (totalLen / (estimatedDurationMs / intervalMs)));
-
-          window._activeTypewriterTimer = setInterval(() => {
-            if (currentTypedIndex < totalLen) {
-              currentTypedIndex = Math.min(totalLen, currentTypedIndex + charsPerTick);
-              if (streamTextSpan) {
-                streamTextSpan.textContent = fullResponse.substring(0, Math.floor(currentTypedIndex));
-                if (body) body.scrollTop = body.scrollHeight;
-              }
-            }
-          }, intervalMs);
         },
-        onBoundary: (e, cleanText) => {
-          // Si el navegador emite eventos de límite de palabra, sincronizar de forma exacta
-          if (e.charIndex !== undefined && cleanText && cleanText.length > 0) {
-            const progressRatio = Math.min(1, (e.charIndex + (e.charLength || 4)) / cleanText.length);
-            const targetChar = Math.floor(progressRatio * totalLen);
-            if (targetChar > currentTypedIndex) {
-              currentTypedIndex = targetChar;
-              if (streamTextSpan) {
-                streamTextSpan.textContent = fullResponse.substring(0, currentTypedIndex);
-                if (body) body.scrollTop = body.scrollHeight;
-              }
-            }
+        onProgress: (currentChunk, progress) => {
+          // El texto se escribe y transcribe en tiempo real exactamente conforme va hablando
+          if (streamTextSpan) {
+            streamTextSpan.innerHTML = _formatLogText(currentChunk) + ' <span class="stream-typing"></span>';
+            if (body) body.scrollTop = body.scrollHeight;
           }
         },
         onEnd: () => {
-          if (window._activeTypewriterTimer) {
-            clearInterval(window._activeTypewriterTimer);
-            window._activeTypewriterTimer = null;
-          }
+          window._onTTSMutedDuringSpeech = null;
           if (streamTextSpan) {
             streamTextSpan.classList.remove('stream-typing');
             streamTextSpan.innerHTML = _formatLogText(fullResponse);
             if (body) body.scrollTop = body.scrollHeight;
           }
+          if (window.PRQAVoice) PRQAVoice.setOrbState('idle');
           _finishAI();
         }
       });
     } else {
-      // Si la voz está desactivada, mostrar el resultado completo formateado de inmediato
       if (streamTextSpan) {
         streamTextSpan.classList.remove('stream-typing');
-        if (fullResponse) {
+        if (fullResponse && fullResponse.trim().length > 0) {
           streamTextSpan.innerHTML = _formatLogText(fullResponse);
         } else {
           streamTextSpan.textContent = '(Sin respuesta de la IA)';
         }
+        if (body) body.scrollTop = body.scrollHeight;
       }
-      if (body) body.scrollTop = body.scrollHeight;
       _finishAI();
     }
 
@@ -4454,6 +4467,9 @@ function toggleTextInput() {
 }
 
 async function sendTextToAI() {
+  if (window.PRQAVoice && typeof PRQAVoice.unlockAudio === 'function') {
+    PRQAVoice.unlockAudio();
+  }
   if (window._isAIProcessing || (window.speechSynthesis && window.speechSynthesis.speaking)) {
     showToast('⚠️ CIEL AI está respondiendo. Espera a que termine o presiona DETENER.', 'warning');
     return;
