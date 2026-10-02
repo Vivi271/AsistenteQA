@@ -21,7 +21,7 @@ from langchain_community.document_loaders import (
 
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3.2:3b")
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3.2:1b")
 EMBED_MODEL = "nomic-embed-text"
 CHROMA_PATH = os.getenv("CHROMA_PATH", "/app/chroma_db")
 COLLECTION_NAME = "prqa_knowledge"
@@ -361,7 +361,11 @@ class RAGPipeline:
             )
 
             async for chunk in stream:
-                content = chunk.get("message", {}).get("content", "")
+                # ollama >= 0.2 returns ChatResponse objects, not dicts
+                try:
+                    content = chunk.message.content if hasattr(chunk, 'message') else chunk.get("message", {}).get("content", "")
+                except Exception:
+                    content = ""
                 if content:
                     yield content
         except Exception as e:

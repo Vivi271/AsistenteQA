@@ -130,7 +130,7 @@ async def startup_event():
         async def _warmup_ollama():
             import ollama, os
             OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-            LLM_MODEL = os.getenv("LLM_MODEL", "llama3.2:3b")
+            LLM_MODEL = os.getenv("LLM_MODEL", "llama3.2:1b")
             try:
                 print(f"[Warmup] Cargando {LLM_MODEL} en memoria (keep_alive=24h)...")
                 client = ollama.Client(host=OLLAMA_HOST, timeout=300.0)
